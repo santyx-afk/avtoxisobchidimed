@@ -26,19 +26,20 @@ export default function History() {
 
   useEffect(() => {
     ;(async () => {
-      const reports = await db.listReports()
-      const withAgg = []
-      for (const r of reports) {
-        const calcs = await db.getCalculationsByReport(r.id)
-        withAgg.push({ report: r, month: r.month, agg: monthSummary(calcs.map((c) => ({ summary: c }))) })
-      }
-      withAgg.sort((a, b) => (a.month < b.month ? 1 : -1))
-      setMonths(withAgg)
-      if (withAgg[0]) {
-        setSelected(withAgg[0].month)
-        setView(await loadMonthView(withAgg[0].month))
-      }
-      setLoading(false)
+      try {
+        const reports = await db.listReports()
+        const withAgg = []
+        for (const r of reports) {
+          const calcs = await db.getCalculationsByReport(r.id)
+          withAgg.push({ report: r, month: r.month, agg: monthSummary(calcs.map((c) => ({ summary: c }))) })
+        }
+        withAgg.sort((a, b) => (a.month < b.month ? 1 : -1))
+        setMonths(withAgg)
+        if (withAgg[0]) {
+          setSelected(withAgg[0].month)
+          setView(await loadMonthView(withAgg[0].month))
+        }
+      } catch (e) { console.error('Tarixni yuklashda xatolik:', e) } finally { setLoading(false) }
     })()
   }, [])
 
@@ -171,7 +172,7 @@ export default function History() {
         </div>
       )}
 
-      <SalaryDetail open={!!detail} onClose={() => setDetail(null)} employee={detail?.employee} summary={detail?.summary} days={detail?.days || []} />
+      <SalaryDetail open={!!detail} onClose={() => setDetail(null)} employee={detail?.employee} summary={detail?.summary} days={detail?.days || []} month={selected} />
     </div>
   )
 }

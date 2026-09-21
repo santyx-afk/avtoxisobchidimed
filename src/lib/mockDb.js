@@ -98,6 +98,15 @@ export async function createEmployee(data) {
   return row
 }
 
+export async function createEmployeesBulk(list) {
+  const s = load()
+  const now = new Date().toISOString()
+  const rows = list.map((data) => ({ id: uid(), is_active: true, created_at: now, ...data }))
+  rows.forEach((r) => s.employees.push(r))
+  save(s)
+  return rows
+}
+
 export async function updateEmployee(id, data) {
   const s = load()
   const idx = s.employees.findIndex((e) => e.id === id)
@@ -105,6 +114,18 @@ export async function updateEmployee(id, data) {
   s.employees[idx] = { ...s.employees[idx], ...data }
   save(s)
   return s.employees[idx]
+}
+
+export async function updateEmployeesBulk(updates) {
+  // updates: [{ id, patch }]
+  const s = load()
+  const byId = new Map(s.employees.map((e, i) => [e.id, i]))
+  for (const u of updates) {
+    const idx = byId.get(u.id)
+    if (idx != null) s.employees[idx] = { ...s.employees[idx], ...u.patch }
+  }
+  save(s)
+  return updates.length
 }
 
 export async function deleteEmployee(id) {

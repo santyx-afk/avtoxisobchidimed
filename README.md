@@ -94,10 +94,29 @@ VITE_SUPABASE_ANON_KEY=eyJhbGci...
 VITE_IVMS_BUCKET=ivms-reports
 ```
 
-> **Xavfsizlik:** ilova custom login ishlatadi (Supabase Auth emas), shuning
-> uchun `schema.sql` anon kalit uchun ochiq RLS siyosati qo'yadi. Bu ichki
-> klinika vositasi — kalitlarni maxfiy saqlang. Ko'proq xavfsizlik kerak bo'lsa
-> Supabase Auth ga o'tishni ko'rib chiqing.
+---
+
+## 🔒 Xavfsizlik
+
+Ilova **ikki xil login** rejimini qo'llab-quvvatlaydi:
+
+**1. Custom login (default)** — nickname + parol, `.env` (`VITE_USERS`).
+> ⚠️ Bu parollar frontend build ichiga tushadi — texnik bilimli odam JS kodidan
+> ularni ko'rishi mumkin. Shuningdek `schema.sql` anon kalit uchun ochiq RLS
+> qo'yadi. Bu **ichki klinika vositasi** uchun mos, lekin kuchli himoya emas.
+> Kalitlarni maxfiy saqlang.
+
+**2. Supabase Auth (tavsiya etiladi, opt-in)** — email + parol, parollar
+bundle'ga tushmaydi, faqat tizimga kirganlar ma'lumotга kira oladi.
+Yoqish uchun:
+1. Supabase → **Authentication** da foydalanuvchilar yarating (email+parol).
+2. `.env` da `VITE_SUPABASE_AUTH=true` qiling (`VITE_USERS` kerak emas).
+3. `supabase/schema.sql` dagi **"authenticated" RLS** siyosatini yoqing
+   (fayl oxiridagi izohli blok), `allow_all` ni o'chiring.
+4. Qayta deploy qiling.
+
+> Default holatda (`VITE_SUPABASE_AUTH` bo'sh/false) hech narsa o'zgarmaydi —
+> hozirgi nickname+parol login ishlaydi.
 
 ---
 

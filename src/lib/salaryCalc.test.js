@@ -68,6 +68,73 @@ describe('calcEmployeeSalary — individual sozlamalar', () => {
   })
 })
 
+describe('calcEmployeeSalary — tungi smena (yarim tundan o\'tadigan)', () => {
+  const guard = {
+    id: 'g', name: 'Qorovul', calc_type: 'hourly', hourly_rate: 25000,
+    work_start: '22:00', work_end: '06:00', lunch_minutes: 0,
+  }
+  const settings = { ...baseSettings, weekend_days: [] }
+
+  it('22:00→06:00 = 8 soat (yarim tundan o\'tadi)', () => {
+    const { summary } = calcEmployeeSalary({
+      employee: guard, settings, month: '2026-08',
+      records: [rec('2026-08-03', '22:00:00', '06:00:00')],
+    })
+    expect(summary.regular_hours).toBe(8)
+    expect(summary.overtime_hours).toBe(0)
+    expect(summary.net_salary).toBe(200000) // 8*25000
+  })
+
+  it('22:00→08:00 = 8 soat regular + 2 soat overtime', () => {
+    const { summary } = calcEmployeeSalary({
+      employee: guard, settings, month: '2026-08',
+      records: [rec('2026-08-04', '22:00:00', '08:00:00')],
+    })
+    expect(summary.regular_hours).toBe(8)
+    expect(summary.overtime_hours).toBe(2)
+    expect(summary.overtime_pay).toBe(75000) // 2*25000*1.5
+    expect(summary.net_salary).toBe(275000)
+  })
+})
+
+describe('calcEmployeeSalary — bayram kunlari', () => {
+  // 2026-08-05 — Chorshanba (ish kuni), uni bayram qilamiz
+  const empFix = {
+    id: 'f', name: 'Fix', calc_type: 'fix', monthly_salary: 3100000,
+    work_start: '08:00', work_end: '17:00', lunch_minutes: 60,
+  }
+  const allPresent = []
+  for (let d = 1; d <= 31; d++) {
+    allPresent.push(rec(`2026-08-${String(d).padStart(2, '0')}`, '08:00:00', '17:00:00'))
+  }
+
+  it('bayram kutilgan ish kunidan chiqariladi (jarima yo\'q)', () => {
+    const base = { ...baseSettings, weekend_days: [] }
+    const noHol = calcEmployeeSalary({ employee: empFix, settings: base, month: '2026-08', records: allPresent })
+    const withHol = calcEmployeeSalary({ employee: empFix, settings: { ...base, holidays: ['2026-08-05'] }, month: '2026-08', records: allPresent })
+    expect(noHol.summary.expected_work_days).toBe(31)
+    expect(withHol.summary.expected_work_days).toBe(30) // bayram chiqarildi
+  })
+
+  it('bayramda absent bo\'lsa ham jarima qilinmaydi', () => {
+    const base = { ...baseSettings, weekend_days: [], holidays: ['2026-08-05'] }
+    const records = allPresent.filter((r) => r.date !== '2026-08-05') // 5-kun kelmagan
+    const { summary } = calcEmployeeSalary({ employee: empFix, settings: base, month: '2026-08', records })
+    expect(summary.expected_work_days).toBe(30)
+    expect(summary.work_days).toBe(30)
+    expect(summary.notes).not.toContain('kelmagan') // bayram absent emas
+  })
+
+  it('bayramda ishlagan — dam olish koeffitsienti (x2)', () => {
+    const emp = { id: 'h', calc_type: 'hourly', hourly_rate: 25000, work_start: '08:00', work_end: '17:00', lunch_minutes: 60 }
+    const base = { ...baseSettings, weekend_days: [], holidays: ['2026-08-05'] }
+    const { summary } = calcEmployeeSalary({ employee: emp, settings: base, month: '2026-08', records: [rec('2026-08-05', '08:00:00', '17:00:00')] })
+    expect(summary.weekend_hours).toBe(8)
+    expect(summary.weekend_pay).toBe(400000) // 8*25000*2
+    expect(summary.regular_hours).toBe(0)
+  })
+})
+
 describe('calcEmployeeSalary — soatbay (hourly)', () => {
   const employee = {
     id: 'e1', name: 'Test', calc_type: 'hourly', hourly_rate: 25000,

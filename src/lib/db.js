@@ -14,6 +14,8 @@ export const resetDemoData = impl.resetDemoData
 
 export const listEmployees = impl.listEmployees
 export const createEmployee = impl.createEmployee
+export const createEmployeesBulk = impl.createEmployeesBulk
+export const updateEmployeesBulk = impl.updateEmployeesBulk
 export const updateEmployee = impl.updateEmployee
 export const deleteEmployee = impl.deleteEmployee
 

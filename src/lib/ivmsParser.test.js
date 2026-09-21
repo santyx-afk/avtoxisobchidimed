@@ -1,5 +1,20 @@
 import { describe, it, expect } from 'vitest'
-import { parseIvmsHtml, groupRecordsByName } from './ivmsParser'
+import { parseIvmsHtml, groupRecordsByName, tidyName, normalizeName } from './ivmsParser'
+
+describe('tidyName / normalizeName', () => {
+  it('ortiqcha probellarni siqadi va trim qiladi', () => {
+    expect(tidyName('  Karimov   Sardor ')).toBe('Karimov Sardor')
+  })
+  it('apostrof variantlarini birlashtiradi', () => {
+    expect(tidyName('Oʻrinova')).toBe("O'rinova")
+    expect(tidyName('O`rinova')).toBe("O'rinova")
+    expect(tidyName('O’rinova')).toBe("O'rinova")
+  })
+  it('normalizeName registrga bog\'liq emas', () => {
+    expect(normalizeName('  KARIMOV  sardor ')).toBe('karimov sardor')
+    expect(normalizeName('Oʻrinova Shoxista')).toBe(normalizeName("O'rinova shoxista"))
+  })
+})
 
 // IVMS-4200 "Punch Report" HTML-xls namunasi.
 // Ikkinchi ma'lumot qatorida IKKI yozuv ketma-ket (22 katak) — chunking sinovi.

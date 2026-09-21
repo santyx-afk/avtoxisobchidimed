@@ -26,6 +26,26 @@ export async function createEmployee(payload) {
   return data
 }
 
+export async function createEmployeesBulk(list) {
+  if (!list.length) return []
+  const out = []
+  for (let i = 0; i < list.length; i += 500) {
+    const { data, error } = await supabase.from('employees').insert(list.slice(i, i + 500)).select()
+    check(error)
+    out.push(...(data || []))
+  }
+  return out
+}
+
+export async function updateEmployeesBulk(updates) {
+  // updates: [{ id, patch }] — har birini alohida yangilaymiz (parallel)
+  await Promise.all(updates.map(async (u) => {
+    const { error } = await supabase.from('employees').update(u.patch).eq('id', u.id)
+    check(error)
+  }))
+  return updates.length
+}
+
 export async function updateEmployee(id, payload) {
   const { data, error } = await supabase.from('employees').update(payload).eq('id', id).select().single()
   check(error)

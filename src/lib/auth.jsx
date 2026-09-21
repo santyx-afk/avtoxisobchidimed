@@ -1,14 +1,32 @@
 import { createContext, useContext, useEffect, useState } from 'react'
-import { parseUsers } from './config'
+import { parseUsers, SUPABASE_AUTH } from './config'
+import { supabase } from './supabase'
 
 const AuthContext = createContext(null)
 const SESSION_KEY = 'dimed-session'
+
+// Supabase Auth faqat yoqilgan VA klient mavjud bo'lsa ishlatiladi
+const useSupabaseAuth = SUPABASE_AUTH && supabase
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
+    if (useSupabaseAuth) {
+      // --- Supabase Auth rejimi ---
+      supabase.auth.getSession().then(({ data }) => {
+        const s = data?.session
+        setUser(s ? { nickname: s.user.email, id: s.user.id } : null)
+        setLoading(false)
+      }).catch(() => setLoading(false))
+      const { data: sub } = supabase.auth.onAuthStateChange((_e, session) => {
+        setUser(session ? { nickname: session.user.email, id: session.user.id } : null)
+      })
+      return () => sub?.subscription?.unsubscribe?.()
+    }
+
+    // --- Custom login rejimi (o'zgarmagan) ---
     try {
       const raw = localStorage.getItem(SESSION_KEY)
       if (raw) {
@@ -22,12 +40,22 @@ export function AuthProvider({ children }) {
   }, [])
 
   /**
-   * @returns {{ok: boolean, error?: string}}
+   * @returns {Promise<{ok: boolean, error?: string}>}
    */
-  function login(nickname, password) {
+  async function login(identifier, password) {
+    if (useSupabaseAuth) {
+      const { error } = await supabase.auth.signInWithPassword({
+        email: String(identifier).trim(),
+        password,
+      })
+      if (error) return { ok: false, error: 'Email yoki parol xato' }
+      return { ok: true }
+    }
+
+    // Custom login (o'zgarmagan)
     const users = parseUsers()
     const found = users.find(
-      (u) => u.nickname === String(nickname).trim() && u.password === String(password),
+      (u) => u.nickname === String(identifier).trim() && u.password === String(password),
     )
     if (!found) {
       return { ok: false, error: "Nickname yoki parol noto'g'ri" }
@@ -42,7 +70,12 @@ export function AuthProvider({ children }) {
     return { ok: true }
   }
 
-  function logout() {
+  async function logout() {
+    if (useSupabaseAuth) {
+      await supabase.auth.signOut().catch(() => {})
+      setUser(null)
+      return
+    }
     setUser(null)
     try {
       localStorage.removeItem(SESSION_KEY)

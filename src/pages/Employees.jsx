@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react'
-import { Plus, Pencil, Trash2, Users, Clock, Building2, AlertCircle, ChevronDown } from 'lucide-react'
+import { Plus, Pencil, Trash2, Users, Clock, Building2, AlertCircle, ChevronDown, ClipboardPaste, CheckCircle2 } from 'lucide-react'
 import { PageHeader, PageLoader, Modal, ConfirmDialog, Field, MoneyInput, Toggle } from '../components/ui'
 import DataTable from '../components/DataTable'
 import { formatSom, shortTime, WEEKDAY_SHORT_UZ } from '../lib/format'
 import { CALC_TYPE_LABEL } from '../lib/constants'
+import { parseBulkSalary, matchBulkSalary } from '../lib/bulkImport'
 import * as db from '../lib/db'
 
 // Dushanbadan boshlab tartib (0=Yakshanba oxirida)
@@ -31,6 +32,7 @@ export default function Employees() {
   const [editing, setEditing] = useState(null)
   const [deleteTarget, setDeleteTarget] = useState(null)
   const [filter, setFilter] = useState('all')
+  const [bulkOpen, setBulkOpen] = useState(false)
 
   async function reload() {
     setEmployees(await db.listEmployees())
@@ -38,8 +40,7 @@ export default function Employees() {
 
   useEffect(() => {
     ;(async () => {
-      await reload()
-      setLoading(false)
+      try { await reload() } catch (e) { console.error('Ishchilarni yuklashda xatolik:', e) } finally { setLoading(false) }
     })()
   }, [])
 
@@ -155,6 +156,9 @@ export default function Employees() {
   return (
     <div>
       <PageHeader title="Ishchilar" subtitle={`${employees.length} ta ishchi`}>
+        <button onClick={() => setBulkOpen(true)} className="btn-secondary">
+          <ClipboardPaste className="h-4 w-4" /> Ommaviy oylik
+        </button>
         <button onClick={openAdd} className="btn-primary">
           <Plus className="h-4 w-4" /> Yangi ishchi
         </button>
@@ -192,6 +196,17 @@ export default function Employees() {
           onClose={() => setModalOpen(false)}
           onSaved={() => {
             setModalOpen(false)
+            reload()
+          }}
+        />
+      )}
+
+      {bulkOpen && (
+        <BulkSalaryModal
+          employees={employees}
+          onClose={() => setBulkOpen(false)}
+          onSaved={() => {
+            setBulkOpen(false)
             reload()
           }}
         />
@@ -248,7 +263,8 @@ function EmployeeForm({ employee, onClose, onSaved }) {
     if (!form.name.trim()) return setError('Ism kiritilishi shart (IVMS dagi ism bilan bir xil)')
     if (form.calc_type === 'fix' && !form.monthly_salary) return setError('Fix oylik uchun oylik summa kiriting')
     if (form.calc_type === 'hourly' && !form.hourly_rate) return setError('Soatbay uchun soat stavkasini kiriting')
-    if (form.work_end <= form.work_start) return setError("Tugash vaqti boshlanishdan keyin bo'lishi kerak")
+    if (form.work_end === form.work_start) return setError("Ish boshlanishi va tugashi bir xil bo'lmasin")
+    // Eslatma: tugash < boshlanish bo'lsa — tungi smena (yarim tundan o'tadi), bu ruxsat etiladi
 
     const payload = {
       name: form.name.trim(),
@@ -329,6 +345,11 @@ function EmployeeForm({ employee, onClose, onSaved }) {
             <input type="number" min="0" className="input" value={form.lunch_minutes} onChange={(e) => set('lunch_minutes', e.target.value)} />
           </Field>
         </div>
+        {form.work_end < form.work_start && (
+          <p className="-mt-2 flex items-center gap-1.5 text-xs text-brand-600 dark:text-brand-400">
+            🌙 Tungi smena — yarim tundan o'tadi (masalan 22:00–06:00). Soatlar keyingi kunga o'tib hisoblanadi.
+          </p>
+        )}
 
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <Field label="Departament">
@@ -419,6 +440,113 @@ function EmployeeForm({ employee, onClose, onSaved }) {
           </button>
         </div>
       </form>
+    </Modal>
+  )
+}
+
+const SAMPLE_BULK = `Aliyeva Nigora\t4500000
+Karimov Sardor\t3000000
+Rahimov Jasur\t25000\tsoatbay`
+
+function BulkSalaryModal({ employees, onClose, onSaved }) {
+  const [text, setText] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [done, setDone] = useState(0)
+
+  const rows = parseBulkSalary(text)
+  const { matched, unmatched, invalid } = matchBulkSalary(rows, employees)
+
+  async function apply() {
+    if (!matched.length) return
+    setBusy(true)
+    try {
+      await db.updateEmployeesBulk(matched.map((m) => ({ id: m.id, patch: m.patch })))
+      setDone(matched.length)
+      setTimeout(onSaved, 900)
+    } catch (e) {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <Modal open onClose={onClose} title="Ommaviy oylik kiritish" size="xl">
+      <div className="space-y-4">
+        <div className="rounded-xl bg-slate-50 p-3 text-sm text-slate-600 dark:bg-slate-800/50 dark:text-slate-300">
+          Excel'dan <b>Ism</b> va <b>Summa</b> ustunlarini nusxalab (Ctrl+C), quyiga qo'ying (Ctrl+V).
+          Har qatorda: <code className="rounded bg-slate-200 px-1 dark:bg-slate-700">Ism [tab] Summa [tab] tur</code> —
+          tur ixtiyoriy (<code>fix</code> yoki <code>soatbay</code>). Ishchilar ism bo'yicha topiladi.
+        </div>
+
+        <textarea
+          className="input min-h-[140px] font-mono text-sm"
+          placeholder={SAMPLE_BULK}
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          autoFocus
+        />
+
+        {rows.length > 0 && (
+          <div className="grid grid-cols-3 gap-2 text-center text-sm">
+            <div className="rounded-lg bg-emerald-50 py-2 dark:bg-emerald-500/10">
+              <div className="font-bold text-emerald-600 dark:text-emerald-400">{matched.length}</div>
+              <div className="text-xs text-slate-500">topildi</div>
+            </div>
+            <div className="rounded-lg bg-amber-50 py-2 dark:bg-amber-500/10">
+              <div className="font-bold text-amber-600 dark:text-amber-400">{unmatched.length}</div>
+              <div className="text-xs text-slate-500">mos kelmadi</div>
+            </div>
+            <div className="rounded-lg bg-red-50 py-2 dark:bg-red-500/10">
+              <div className="font-bold text-red-600 dark:text-red-400">{invalid.length}</div>
+              <div className="text-xs text-slate-500">noto'g'ri qator</div>
+            </div>
+          </div>
+        )}
+
+        {matched.length > 0 && (
+          <div className="max-h-56 overflow-y-auto rounded-xl border border-slate-200 dark:border-slate-700">
+            <table className="w-full">
+              <thead className="sticky top-0 bg-slate-50 dark:bg-slate-800">
+                <tr>
+                  <th className="table-th">Ishchi</th>
+                  <th className="table-th">Turi</th>
+                  <th className="table-th text-right">Yangi oylik/stavka</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                {matched.map((m) => (
+                  <tr key={m.id}>
+                    <td className="table-td">{m.name}</td>
+                    <td className="table-td">{CALC_TYPE_LABEL[m.calc_type]}</td>
+                    <td className="table-td text-right tabular font-medium">{formatSom(m.amount)}{m.calc_type === 'hourly' ? '/soat' : ''}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {unmatched.length > 0 && (
+          <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs dark:border-amber-500/20 dark:bg-amber-500/10">
+            <p className="font-semibold text-amber-700 dark:text-amber-300">Mos kelmagan ({unmatched.length}) — ism tizimda yo'q:</p>
+            <div className="mt-1.5 flex flex-wrap gap-1">
+              {unmatched.slice(0, 20).map((r, i) => <span key={i} className="badge-amber">{r.name}</span>)}
+            </div>
+          </div>
+        )}
+
+        {done > 0 ? (
+          <div className="flex items-center gap-2 rounded-xl bg-emerald-50 px-3 py-2 text-sm text-emerald-600 dark:bg-emerald-500/10 dark:text-emerald-300">
+            <CheckCircle2 className="h-4 w-4" /> {done} ta ishchi oyligi yangilandi. Endi "Oylik hisoblash" da "Qayta hisoblash" tugmasini bosing.
+          </div>
+        ) : (
+          <div className="flex justify-end gap-2 pt-1">
+            <button onClick={onClose} className="btn-secondary">Bekor qilish</button>
+            <button onClick={apply} className="btn-primary" disabled={busy || matched.length === 0}>
+              {busy ? 'Saqlanmoqda…' : `${matched.length} ta ishchini yangilash`}
+            </button>
+          </div>
+        )}
+      </div>
     </Modal>
   )
 }

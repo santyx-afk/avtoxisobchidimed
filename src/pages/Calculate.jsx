@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   Upload, FileSpreadsheet, Wallet, Timer, AlertTriangle, Eye, Server,
-  UserX, FileWarning, CheckCircle2, Loader2, Calculator, UserPlus, RefreshCw,
+  UserX, FileWarning, CheckCircle2, Loader2, Calculator, UserPlus, RefreshCw, Lock, LockOpen,
 } from 'lucide-react'
 import { PageHeader, StatCard, EmptyState, PageLoader } from '../components/ui'
 import DataTable from '../components/DataTable'
@@ -11,6 +11,7 @@ import { CALC_TYPE_LABEL, REPORT_SOURCE_LABEL } from '../lib/constants'
 import { processIvmsFile, computeReport, saveReport, recalculateMonth } from '../lib/runCalculation'
 import { groupRecordsByName } from '../lib/ivmsParser'
 import { loadMonthView } from '../lib/reportView'
+import { isMonthLocked, setMonthLocked } from '../lib/monthLock'
 import * as db from '../lib/db'
 
 function readFileText(file) {
@@ -44,11 +45,25 @@ export default function Calculate() {
   const [addingAll, setAddingAll] = useState(false)
   const [addedMsg, setAddedMsg] = useState('')
   const [recalcing, setRecalcing] = useState(false)
+  const [locked, setLocked] = useState(false)
   const fileRef = useRef(null)
+
+  useEffect(() => {
+    if (!view?.month) { setLocked(false); return }
+    isMonthLocked(view.month).then(setLocked)
+  }, [view?.month])
+
+  async function toggleLock() {
+    if (!view?.month) return
+    await setMonthLocked(view.month, !locked)
+    setLocked(!locked)
+    setAddedMsg(!locked ? `${view.month} oyi qulflandi.` : `${view.month} oyi ochildi.`)
+  }
 
   // Ishchilar oyligi/sozlamasi o'zgargach — oyni qayta hisoblash
   async function handleRecalc() {
     if (!view?.month || recalcing) return
+    if (locked) { setError(`${view.month} oyi qulflangan. Qayta hisoblash uchun avval oyni oching.`); return }
     setRecalcing(true)
     setError('')
     setAddedMsg('')
@@ -72,8 +87,7 @@ export default function Calculate() {
 
   useEffect(() => {
     ;(async () => {
-      await refresh()
-      setLoading(false)
+      try { await refresh() } catch (e) { console.error('Hisob-kitobni yuklashda xatolik:', e) } finally { setLoading(false) }
     })()
   }, [])
 
@@ -120,11 +134,12 @@ export default function Calculate() {
     setError('')
     try {
       const grouped = groupRecordsByName(view.parsedRecords)
-      for (const name of view.unmatchedNames) {
+      // Barcha ishchini bitta batch bilan qo'shamiz (tez)
+      const payloads = view.unmatchedNames.map((name) => {
         const recs = grouped.get(name) || []
         const first = recs.find((r) => r.department) || recs[0] || {}
         const sched = parseSchedule(first.schedule)
-        await db.createEmployee({
+        return {
           name,
           calc_type: 'fix',
           monthly_salary: null, // keyin Ishchilar sahifasida to'ldiriladi
@@ -135,8 +150,9 @@ export default function Calculate() {
           department: first.department || 'Dimed',
           position: first.position || null,
           is_active: true,
-        })
-      }
+        }
+      })
+      await db.createEmployeesBulk(payloads)
 
       // Endi ismlar mos keladi — qayta hisoblaymiz
       const [employees, st] = await Promise.all([db.listEmployees(), db.getSettings()])
@@ -280,10 +296,17 @@ export default function Calculate() {
             <span className="text-slate-500 dark:text-slate-400">Fayl: {view.report?.file_name || '—'}</span>
             <span className="text-slate-500 dark:text-slate-400">Yuklangan: {formatDateTime(view.report?.uploaded_at)}</span>
             <span className="badge-slate">{REPORT_SOURCE_LABEL[view.report?.source] || '—'}</span>
-            <button onClick={handleRecalc} className="btn-secondary btn-sm ml-auto" disabled={recalcing} title="Ishchilar oyligi/sozlamasi o'zgargan bo'lsa bosing">
-              {recalcing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
-              Qayta hisoblash
-            </button>
+            {locked && <span className="badge-amber"><Lock className="h-3 w-3" /> Qulflangan</span>}
+            <div className="ml-auto flex items-center gap-2">
+              <button onClick={toggleLock} className="btn-secondary btn-sm" title={locked ? 'Oyni ochish' : 'Oyni yopish (o\'zgarishlardan himoya)'}>
+                {locked ? <LockOpen className="h-3.5 w-3.5" /> : <Lock className="h-3.5 w-3.5" />}
+                {locked ? 'Ochish' : 'Oyni yopish'}
+              </button>
+              <button onClick={handleRecalc} className="btn-secondary btn-sm" disabled={recalcing || locked} title="Ishchilar oyligi/sozlamasi o'zgargan bo'lsa bosing">
+                {recalcing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+                Qayta hisoblash
+              </button>
+            </div>
           </div>
 
           {/* Stats */}
@@ -350,6 +373,7 @@ export default function Calculate() {
         employee={detail?.employee}
         summary={detail?.summary}
         days={detail?.days || []}
+        month={view?.month}
       />
     </div>
   )

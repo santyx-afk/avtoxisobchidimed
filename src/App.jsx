@@ -3,6 +3,7 @@ import { Routes, Route, Navigate } from 'react-router-dom'
 import Layout from './components/Layout'
 import ProtectedRoute from './components/ProtectedRoute'
 import { PageLoader } from './components/ui'
+import GlobalErrors from './components/GlobalErrors'
 import Login from './pages/Login'
 import Dashboard from './pages/Dashboard'
 
@@ -16,6 +17,8 @@ const Settings = lazy(() => import('./pages/Settings'))
 
 export default function App() {
   return (
+    <>
+    <GlobalErrors />
     <Routes>
       <Route path="/login" element={<Login />} />
       <Route
@@ -35,6 +38,7 @@ export default function App() {
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
+    </>
   )
 }
 

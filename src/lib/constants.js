@@ -6,6 +6,8 @@ export const DEFAULT_SETTINGS = {
   overtime_multiplier: 1.5, // qo'shimcha ish soati koeffitsienti
   weekend_multiplier: 2, // dam olish kuni koeffitsienti
   weekend_days: [0], // 0=Yakshanba, 6=Shanba (bir nechta bo'lishi mumkin)
+  holidays: [], // bayram kunlari ['YYYY-MM-DD', ...] — jarima qilinmaydi, haq to'lanadi
+  locked_months: [], // qulflangan (yopilgan) oylar ['YYYY-MM', ...] — o'zgartirib bo'lmaydi
   agent: {
     enabled: false,
     run_day: 1, // oyning qaysi kuni export qilinadi
