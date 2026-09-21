@@ -1,10 +1,12 @@
+import { Printer } from 'lucide-react'
 import { Modal } from './ui'
 import DataTable from './DataTable'
 import { formatSom, formatSigned, shortTime, minutesToHm, minutesToHours } from '../lib/format'
 import { CALC_TYPE_LABEL } from '../lib/constants'
+import { printPayslip } from '../lib/payslip'
 
 /** Bitta ishchining oylik natijasi: farq sabablari + kunlik breakdown */
-export default function SalaryDetail({ open, onClose, employee, summary, days = [] }) {
+export default function SalaryDetail({ open, onClose, employee, summary, days = [], month }) {
   if (!summary) return null
 
   const chips = [
@@ -33,6 +35,16 @@ export default function SalaryDetail({ open, onClose, employee, summary, days = 
   return (
     <Modal open={open} onClose={onClose} title={employee?.name || 'Oylik tafsiloti'} size="xl">
       <div className="space-y-5">
+        <div className="flex justify-end">
+          <button
+            onClick={() => printPayslip({ employee, summary, month })}
+            className="btn-secondary btn-sm"
+            title="Oylik varaqasini chop etish yoki PDF qilish"
+          >
+            <Printer className="h-4 w-4" /> Payslip (chop etish)
+          </button>
+        </div>
+
         {/* Natija sarlavhasi */}
         <div className="grid grid-cols-3 gap-3 rounded-2xl bg-slate-50 p-4 text-center dark:bg-slate-800/50">
           <div>

@@ -352,6 +352,7 @@ export default function Calculate() {
         employee={detail?.employee}
         summary={detail?.summary}
         days={detail?.days || []}
+        month={view?.month}
       />
     </div>
   )

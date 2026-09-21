@@ -171,7 +171,7 @@ export default function History() {
         </div>
       )}
 
-      <SalaryDetail open={!!detail} onClose={() => setDetail(null)} employee={detail?.employee} summary={detail?.summary} days={detail?.days || []} />
+      <SalaryDetail open={!!detail} onClose={() => setDetail(null)} employee={detail?.employee} summary={detail?.summary} days={detail?.days || []} month={selected} />
     </div>
   )
 }
