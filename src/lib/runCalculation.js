@@ -1,6 +1,7 @@
 // IVMS hisobotini qayta ishlash: parse -> ishchilarni moslashtirish -> hisoblash -> saqlash
 import { parseIvmsHtml, normalizeName } from './ivmsParser'
 import { calcEmployeeSalary } from './salaryCalc'
+import { isMonthLocked } from './monthLock'
 import * as db from './db'
 
 /**
@@ -9,6 +10,7 @@ import * as db from './db'
  * @returns {boolean} report topilib qayta hisoblandimi
  */
 export async function recalculateMonth(month) {
+  if (await isMonthLocked(month)) return false // qulflangan oy — o'zgartirilmaydi
   const report = await db.getReportByMonth(month)
   if (!report) return false
   const [employees, settings, attendance] = await Promise.all([
@@ -106,6 +108,9 @@ export async function processIvmsFile({ html, fileName, source = 'manual' }) {
   }
   if (parsed.records.length === 0) {
     throw new Error("Faylda hech qanday yozuv topilmadi. Format noto'g'ri bo'lishi mumkin.")
+  }
+  if (await isMonthLocked(parsed.month)) {
+    throw new Error(`${parsed.month} oyi qulflangan. Avval Sozlamalar/Tarixdan oyni oching.`)
   }
 
   const [employees, settings] = await Promise.all([db.listEmployees(), db.getSettings()])
