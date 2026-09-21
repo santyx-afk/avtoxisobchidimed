@@ -1,10 +1,10 @@
 import { useEffect, useState } from 'react'
 import {
   Save, RotateCcw, Sliders, CalendarDays, Server, Database, FlaskConical,
-  CheckCircle2, Loader2, AlertTriangle,
+  CheckCircle2, Loader2, AlertTriangle, PartyPopper, Plus, X,
 } from 'lucide-react'
 import { PageHeader, PageLoader, Field, Toggle, ConfirmDialog } from '../components/ui'
-import { WEEKDAY_NAMES_UZ, formatDateTime } from '../lib/format'
+import { WEEKDAY_NAMES_UZ, formatDate, formatDateTime } from '../lib/format'
 import { DEFAULT_SETTINGS } from '../lib/constants'
 import { recalculateMonth } from '../lib/runCalculation'
 import { IS_DEMO } from '../lib/db'
@@ -17,6 +17,7 @@ export default function Settings() {
   const [busy, setBusy] = useState(false)
   const [saved, setSaved] = useState(false)
   const [resetOpen, setResetOpen] = useState(false)
+  const [holidayInput, setHolidayInput] = useState('')
   const set = (k, v) => { setForm((f) => ({ ...f, [k]: v })); setSaved(false) }
   const setAgent = (k, v) => { setForm((f) => ({ ...f, agent: { ...f.agent, [k]: v } })); setSaved(false) }
 
@@ -35,6 +36,20 @@ export default function Settings() {
     })
   }
 
+  function addHoliday(date) {
+    if (!date) return
+    setSaved(false)
+    setForm((f) => {
+      const list = f.holidays || []
+      if (list.includes(date)) return f
+      return { ...f, holidays: [...list, date].sort() }
+    })
+  }
+  function removeHoliday(date) {
+    setSaved(false)
+    setForm((f) => ({ ...f, holidays: (f.holidays || []).filter((d) => d !== date) }))
+  }
+
   async function save() {
     setBusy(true)
     await db.updateSettings({
@@ -43,6 +58,7 @@ export default function Settings() {
       overtime_multiplier: Number(form.overtime_multiplier) || 1,
       weekend_multiplier: Number(form.weekend_multiplier) || 1,
       weekend_days: form.weekend_days,
+      holidays: form.holidays || [],
       agent: form.agent,
     })
     // Sozlama o'zgargani uchun barcha oylarni qayta hisoblaymiz
@@ -122,6 +138,47 @@ export default function Settings() {
                 </button>
               )
             })}
+          </div>
+        </div>
+
+        {/* Bayram kunlari */}
+        <div className="card p-5">
+          <div className="mb-4 flex items-center gap-2">
+            <PartyPopper className="h-5 w-5 text-emerald-500" />
+            <h3 className="font-semibold text-slate-800 dark:text-slate-100">Bayram kunlari</h3>
+          </div>
+          <p className="mb-3 text-sm text-slate-500 dark:text-slate-400">
+            Bayram ish kuniga to'g'ri kelsa — <b>kelmagan deb jarima qilinmaydi</b> (haq to'lanadi). Bayramda ishlaganlar dam olish koeffitsienti bilan hisoblanadi.
+          </p>
+          <div className="flex gap-2">
+            <input
+              type="date"
+              className="input tabular"
+              value={holidayInput}
+              onChange={(e) => setHolidayInput(e.target.value)}
+            />
+            <button
+              type="button"
+              onClick={() => { addHoliday(holidayInput); setHolidayInput('') }}
+              className="btn-secondary shrink-0"
+              disabled={!holidayInput}
+            >
+              <Plus className="h-4 w-4" /> Qo'shish
+            </button>
+          </div>
+          <div className="mt-3 flex flex-wrap gap-2">
+            {(form.holidays || []).length === 0 ? (
+              <span className="text-sm text-slate-400">Bayram kunlari kiritilmagan</span>
+            ) : (
+              (form.holidays || []).map((date) => (
+                <span key={date} className="badge-green gap-1.5 pr-1">
+                  {formatDate(date)}
+                  <button type="button" onClick={() => removeHoliday(date)} className="rounded-full p-0.5 hover:bg-emerald-200/60 dark:hover:bg-emerald-500/20" aria-label="O'chirish">
+                    <X className="h-3 w-3" />
+                  </button>
+                </span>
+              ))
+            )}
           </div>
         </div>
 

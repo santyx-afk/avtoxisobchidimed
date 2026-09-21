@@ -60,6 +60,10 @@ export function calcEmployeeSalary({ employee, records = [], settings, advances 
   const scheduledMinutes = Math.max(0, workEnd - workStart - lunch)
   const scheduledHours = scheduledMinutes / 60
 
+  // Bayram kunlari — jarima qilinmaydi (haq to'lanadi), dam kuni kabi ishlanadi
+  const holidaySet = new Set(settings.holidays || [])
+  const isRestDay = (dateStr) => weekendDays.includes(weekdayOfDate(dateStr)) || holidaySet.has(dateStr)
+
   // --- Kelmagan kunlar (kalendar bo'yicha, ish kunlari) ---
   const recByDate = new Map(records.map((r) => [r.date, r]))
   const totalDays = daysInMonth(month)
@@ -67,7 +71,7 @@ export function calcEmployeeSalary({ employee, records = [], settings, advances 
   const absentDates = []
   for (let d = 1; d <= totalDays; d++) {
     const dateStr = `${month}-${String(d).padStart(2, '0')}`
-    if (weekendDays.includes(weekdayOfDate(dateStr))) continue
+    if (isRestDay(dateStr)) continue // dam olish yoki bayram — kutilgan ish kuni emas
     const rec = recByDate.get(dateStr)
     const present = rec && timeToMinutes(rec.firstIn) != null
     if (present) workingDaysPresent++
@@ -88,8 +92,7 @@ export function calcEmployeeSalary({ employee, records = [], settings, advances 
   let presentDaysTotal = 0
 
   for (const r of records) {
-    const wd = weekdayOfDate(r.date)
-    const isWeekend = weekendDays.includes(wd)
+    const isWeekend = isRestDay(r.date) // dam olish yoki bayram
     const inMin = timeToMinutes(r.firstIn)
     const outMin = timeToMinutes(r.lastOut)
     let worked = 0
