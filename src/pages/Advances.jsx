@@ -31,12 +31,13 @@ export default function Advances() {
 
   useEffect(() => {
     ;(async () => {
-      const [emps] = await Promise.all([db.listEmployees()])
-      setEmployees(emps)
-      const { preferred } = await loadMonths()
-      setMonth(preferred)
-      await reloadAdvances(preferred)
-      setLoading(false)
+      try {
+        const [emps] = await Promise.all([db.listEmployees()])
+        setEmployees(emps)
+        const { preferred } = await loadMonths()
+        setMonth(preferred)
+        await reloadAdvances(preferred)
+      } catch (e) { console.error('Avanslarni yuklashda xatolik:', e) } finally { setLoading(false) }
     })()
   }, [])
 

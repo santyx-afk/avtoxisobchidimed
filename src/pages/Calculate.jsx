@@ -87,8 +87,7 @@ export default function Calculate() {
 
   useEffect(() => {
     ;(async () => {
-      await refresh()
-      setLoading(false)
+      try { await refresh() } catch (e) { console.error('Hisob-kitobni yuklashda xatolik:', e) } finally { setLoading(false) }
     })()
   }, [])
 

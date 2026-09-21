@@ -22,13 +22,17 @@ export default function Dashboard() {
     ;(async () => {
       // Agent yuklagan yangi fayllarni tekshirish (faqat Supabase rejimida)
       try { await syncAgentReports() } catch (e) { /* e'tiborsiz */ }
-      const [emps, reps, st] = await Promise.all([db.listEmployees(), db.listReports(), db.getSettings()])
-      setEmployees(emps)
-      setReports(reps)
-      setSettings(st)
-      const initial = reps[0]?.month || ''
-      setMonth(initial)
-      setLoading(false)
+      try {
+        const [emps, reps, st] = await Promise.all([db.listEmployees(), db.listReports(), db.getSettings()])
+        setEmployees(emps)
+        setReports(reps)
+        setSettings(st)
+        setMonth(reps[0]?.month || '')
+      } catch (e) {
+        console.error('Dashboard yuklashda xatolik:', e)
+      } finally {
+        setLoading(false)
+      }
     })()
   }, [])
 

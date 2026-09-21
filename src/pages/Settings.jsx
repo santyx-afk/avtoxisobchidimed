@@ -23,8 +23,7 @@ export default function Settings() {
 
   useEffect(() => {
     ;(async () => {
-      setForm(await db.getSettings())
-      setLoading(false)
+      try { setForm(await db.getSettings()) } catch (e) { console.error('Sozlamalarni yuklashda xatolik:', e) } finally { setLoading(false) }
     })()
   }, [])
 

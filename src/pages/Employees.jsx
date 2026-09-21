@@ -40,8 +40,7 @@ export default function Employees() {
 
   useEffect(() => {
     ;(async () => {
-      await reload()
-      setLoading(false)
+      try { await reload() } catch (e) { console.error('Ishchilarni yuklashda xatolik:', e) } finally { setLoading(false) }
     })()
   }, [])
 

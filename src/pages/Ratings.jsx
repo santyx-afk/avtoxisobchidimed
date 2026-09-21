@@ -16,13 +16,14 @@ export default function Ratings() {
 
   useEffect(() => {
     ;(async () => {
-      const reps = await db.listReports()
-      setReports(reps)
-      if (reps[0]) {
-        setMonth(reps[0].month)
-        setView(await loadMonthView(reps[0].month))
-      }
-      setLoading(false)
+      try {
+        const reps = await db.listReports()
+        setReports(reps)
+        if (reps[0]) {
+          setMonth(reps[0].month)
+          setView(await loadMonthView(reps[0].month))
+        }
+      } catch (e) { console.error('Reytingni yuklashda xatolik:', e) } finally { setLoading(false) }
     })()
   }, [])
 
