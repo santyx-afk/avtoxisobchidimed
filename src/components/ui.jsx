@@ -2,6 +2,25 @@ import { useEffect } from 'react'
 import { createPortal } from 'react-dom'
 import { X, Loader2, Inbox, AlertTriangle } from 'lucide-react'
 import clsx from 'clsx'
+import { formatSom } from '../lib/format'
+
+/** So'm formatida ko'rsatadigan raqamli kirish (1,000,000) */
+export function MoneyInput({ value, onChange, placeholder = '0', className, ...props }) {
+  const display = value === '' || value === null || value === undefined ? '' : formatSom(value)
+  return (
+    <input
+      className={clsx('input tabular', className)}
+      inputMode="numeric"
+      value={display}
+      onChange={(e) => {
+        const digits = e.target.value.replace(/[^\d]/g, '')
+        onChange(digits === '' ? '' : Number(digits))
+      }}
+      placeholder={placeholder}
+      {...props}
+    />
+  )
+}
 
 export function Spinner({ className }) {
   return <Loader2 className={clsx('h-5 w-5 animate-spin', className)} />

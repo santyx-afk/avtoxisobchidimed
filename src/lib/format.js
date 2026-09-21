@@ -6,7 +6,7 @@ export function formatSom(value, { withCurrency = false } = {}) {
   const sign = n < 0 ? '-' : ''
   const str = Math.abs(n)
     .toString()
-    .replace(/\B(?=(\d{3})+(?!\d))/g, ' ')
+    .replace(/\B(?=(\d{3})+(?!\d))/g, ',')
   return `${sign}${str}${withCurrency ? " so'm" : ''}`
 }
 
