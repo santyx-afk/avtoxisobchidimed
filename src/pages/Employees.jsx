@@ -248,7 +248,8 @@ function EmployeeForm({ employee, onClose, onSaved }) {
     if (!form.name.trim()) return setError('Ism kiritilishi shart (IVMS dagi ism bilan bir xil)')
     if (form.calc_type === 'fix' && !form.monthly_salary) return setError('Fix oylik uchun oylik summa kiriting')
     if (form.calc_type === 'hourly' && !form.hourly_rate) return setError('Soatbay uchun soat stavkasini kiriting')
-    if (form.work_end <= form.work_start) return setError("Tugash vaqti boshlanishdan keyin bo'lishi kerak")
+    if (form.work_end === form.work_start) return setError("Ish boshlanishi va tugashi bir xil bo'lmasin")
+    // Eslatma: tugash < boshlanish bo'lsa — tungi smena (yarim tundan o'tadi), bu ruxsat etiladi
 
     const payload = {
       name: form.name.trim(),
@@ -329,6 +330,11 @@ function EmployeeForm({ employee, onClose, onSaved }) {
             <input type="number" min="0" className="input" value={form.lunch_minutes} onChange={(e) => set('lunch_minutes', e.target.value)} />
           </Field>
         </div>
+        {form.work_end < form.work_start && (
+          <p className="-mt-2 flex items-center gap-1.5 text-xs text-brand-600 dark:text-brand-400">
+            🌙 Tungi smena — yarim tundan o'tadi (masalan 22:00–06:00). Soatlar keyingi kunga o'tib hisoblanadi.
+          </p>
+        )}
 
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <Field label="Departament">

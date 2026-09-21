@@ -68,6 +68,35 @@ describe('calcEmployeeSalary — individual sozlamalar', () => {
   })
 })
 
+describe('calcEmployeeSalary — tungi smena (yarim tundan o\'tadigan)', () => {
+  const guard = {
+    id: 'g', name: 'Qorovul', calc_type: 'hourly', hourly_rate: 25000,
+    work_start: '22:00', work_end: '06:00', lunch_minutes: 0,
+  }
+  const settings = { ...baseSettings, weekend_days: [] }
+
+  it('22:00→06:00 = 8 soat (yarim tundan o\'tadi)', () => {
+    const { summary } = calcEmployeeSalary({
+      employee: guard, settings, month: '2026-08',
+      records: [rec('2026-08-03', '22:00:00', '06:00:00')],
+    })
+    expect(summary.regular_hours).toBe(8)
+    expect(summary.overtime_hours).toBe(0)
+    expect(summary.net_salary).toBe(200000) // 8*25000
+  })
+
+  it('22:00→08:00 = 8 soat regular + 2 soat overtime', () => {
+    const { summary } = calcEmployeeSalary({
+      employee: guard, settings, month: '2026-08',
+      records: [rec('2026-08-04', '22:00:00', '08:00:00')],
+    })
+    expect(summary.regular_hours).toBe(8)
+    expect(summary.overtime_hours).toBe(2)
+    expect(summary.overtime_pay).toBe(75000) // 2*25000*1.5
+    expect(summary.net_salary).toBe(275000)
+  })
+})
+
 describe('calcEmployeeSalary — bayram kunlari', () => {
   // 2026-08-05 — Chorshanba (ish kuni), uni bayram qilamiz
   const empFix = {

@@ -57,7 +57,9 @@ export function calcEmployeeSalary({ employee, records = [], settings, advances 
   const workStart = timeToMinutes(employee.work_start) ?? 480
   const workEnd = timeToMinutes(employee.work_end) ?? 1020
   const lunch = Number(employee.lunch_minutes ?? 60)
-  const scheduledMinutes = Math.max(0, workEnd - workStart - lunch)
+  // Tungi smena: tugash boshlanishdan kichik bo'lsa (masalan 22:00-06:00) — keyingi kunga o'tadi
+  const workEndAdj = workEnd > workStart ? workEnd : workEnd + 1440
+  const scheduledMinutes = Math.max(0, workEndAdj - workStart - lunch)
   const scheduledHours = scheduledMinutes / 60
 
   // Bayram kunlari — jarima qilinmaydi (haq to'lanadi), dam kuni kabi ishlanadi
@@ -101,10 +103,12 @@ export function calcEmployeeSalary({ employee, records = [], settings, advances 
 
     if (inMin != null) {
       presentDaysTotal++
-      if (outMin != null && outMin > inMin) {
-        const raw = outMin - inMin
+      if (outMin != null && outMin !== inMin) {
+        // Yarim tundan o'tgan bo'lsa (chiqish < kirish) — keyingi kunga o'tadi
+        const outAdj = outMin > inMin ? outMin : outMin + 1440
+        const raw = outAdj - inMin
         worked = Math.max(0, raw - lunch)
-        if (!isWeekend) ot = Math.max(0, outMin - workEnd)
+        if (!isWeekend) ot = Math.max(0, outAdj - workEndAdj)
       } else {
         // faqat bitta punch — to'liq ish kuni deb hisoblaymiz
         worked = isWeekend ? 0 : scheduledMinutes
