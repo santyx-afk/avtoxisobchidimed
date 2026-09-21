@@ -27,6 +27,19 @@ function normalize(s) {
   return String(s || '').toLowerCase().replace(/\s+/g, ' ').trim()
 }
 
+/** Ismni tozalaydi: ortiqcha probellarni siqadi, apostrof variantlarini birlashtiradi (registr saqlanadi) */
+export function tidyName(s) {
+  return String(s || '')
+    .replace(/[ʻʼ‘’´`]/g, "'") // O'/Oʻ/O`/O' variantlari -> '
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+/** Ismni moslashtirish uchun normallaydi: tidyName + kichik harf (registrga bog'liq emas) */
+export function normalizeName(s) {
+  return tidyName(s).toLowerCase()
+}
+
 /** Header qatorini topadi (Имя va Дата ustunlari bor qator) */
 function findHeaderRow(rows) {
   for (let i = 0; i < rows.length; i++) {
@@ -63,7 +76,7 @@ function mapChunk(chunk) {
   return {
     no: chunk[0]?.trim() || '',
     personId: chunk[1]?.trim() || '',
-    name: chunk[2]?.trim() || '',
+    name: tidyName(chunk[2]),
     department: chunk[3]?.trim() || '',
     position: chunk[4]?.trim() || '',
     gender: chunk[5]?.trim() || '',

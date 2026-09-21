@@ -120,11 +120,12 @@ export default function Calculate() {
     setError('')
     try {
       const grouped = groupRecordsByName(view.parsedRecords)
-      for (const name of view.unmatchedNames) {
+      // Barcha ishchini bitta batch bilan qo'shamiz (tez)
+      const payloads = view.unmatchedNames.map((name) => {
         const recs = grouped.get(name) || []
         const first = recs.find((r) => r.department) || recs[0] || {}
         const sched = parseSchedule(first.schedule)
-        await db.createEmployee({
+        return {
           name,
           calc_type: 'fix',
           monthly_salary: null, // keyin Ishchilar sahifasida to'ldiriladi
@@ -135,8 +136,9 @@ export default function Calculate() {
           department: first.department || 'Dimed',
           position: first.position || null,
           is_active: true,
-        })
-      }
+        }
+      })
+      await db.createEmployeesBulk(payloads)
 
       // Endi ismlar mos keladi — qayta hisoblaymiz
       const [employees, st] = await Promise.all([db.listEmployees(), db.getSettings()])

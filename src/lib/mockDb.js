@@ -98,6 +98,15 @@ export async function createEmployee(data) {
   return row
 }
 
+export async function createEmployeesBulk(list) {
+  const s = load()
+  const now = new Date().toISOString()
+  const rows = list.map((data) => ({ id: uid(), is_active: true, created_at: now, ...data }))
+  rows.forEach((r) => s.employees.push(r))
+  save(s)
+  return rows
+}
+
 export async function updateEmployee(id, data) {
   const s = load()
   const idx = s.employees.findIndex((e) => e.id === id)

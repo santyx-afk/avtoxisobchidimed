@@ -1,5 +1,5 @@
 // IVMS hisobotini qayta ishlash: parse -> ishchilarni moslashtirish -> hisoblash -> saqlash
-import { parseIvmsHtml, groupRecordsByName } from './ivmsParser'
+import { parseIvmsHtml, normalizeName } from './ivmsParser'
 import { calcEmployeeSalary } from './salaryCalc'
 import * as db from './db'
 
@@ -45,14 +45,24 @@ export async function recalculateMonth(month) {
  * @param {{records: Array, month: string, employees: Array, settings: object, advancesByEmployee: Map}}
  */
 export function computeReport({ records, month, employees, settings, advancesByEmployee = new Map() }) {
-  const grouped = groupRecordsByName(records)
   const activeEmployees = employees.filter((e) => e.is_active)
+
+  // Yozuvlarni normallashtirilgan ism bo'yicha guruhlaymiz (registr/probel/apostrofga
+  // bog'liq emas — IVMS dagi kichik farqlar tufayli mos kelmaslikni kamaytiradi).
+  const recByNorm = new Map() // normKey -> { display, records: [] }
+  for (const r of records) {
+    const key = normalizeName(r.name)
+    if (!recByNorm.has(key)) recByNorm.set(key, { display: r.name, records: [] })
+    recByNorm.get(key).records.push(r)
+  }
+  const empByNorm = new Set(activeEmployees.map((e) => normalizeName(e.name)))
+
   const results = []
   const allDays = []
   const allSummaries = []
-
   for (const employee of activeEmployees) {
-    const empRecords = grouped.get(employee.name) || []
+    const bucket = recByNorm.get(normalizeName(employee.name))
+    const empRecords = bucket ? bucket.records : []
     const advances = advancesByEmployee.get(employee.id) || []
     const { summary, days } = calcEmployeeSalary({ employee, records: empRecords, settings, advances, month })
     results.push({ employee, summary, hasData: empRecords.length > 0 })
@@ -60,8 +70,10 @@ export function computeReport({ records, month, employees, settings, advancesByE
     allSummaries.push(summary)
   }
 
-  const employeeNames = new Set(activeEmployees.map((e) => e.name))
-  const unmatchedNames = [...grouped.keys()].filter((n) => !employeeNames.has(n))
+  // Faylda bor, tizimda yo'q (normallashtirilgan bo'yicha, dublikatsiz — display ism ko'rsatiladi)
+  const unmatchedNames = [...recByNorm.entries()]
+    .filter(([key]) => !empByNorm.has(key))
+    .map(([, v]) => v.display)
   const missingEmployees = results.filter((r) => !r.hasData).map((r) => r.employee.name)
 
   return { results, allDays, allSummaries, unmatchedNames, missingEmployees }
