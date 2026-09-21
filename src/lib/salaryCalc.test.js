@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { calcEmployeeSalary, expectedWorkDays } from './salaryCalc'
+import { calcEmployeeSalary, expectedWorkDays, employeeRestDays } from './salaryCalc'
 
 const baseSettings = {
   late_penalty_per_min: 500,
@@ -18,6 +18,53 @@ describe('expectedWorkDays', () => {
   })
   it('Shanba+Yakshanba dam olish bo\'lsa kamroq', () => {
     expect(expectedWorkDays('2026-08', [0, 6])).toBeLessThan(26)
+  })
+})
+
+describe('employeeRestDays — individual ish kunlari', () => {
+  it('work_days berilsa, undan tashqari kunlar dam olish', () => {
+    expect(employeeRestDays({ work_days: [1, 2, 3, 4, 5, 6] }, { weekend_days: [0] })).toEqual([0])
+    expect(employeeRestDays({ work_days: [1, 2, 3, 4, 5] }, { weekend_days: [0] })).toEqual([0, 6])
+  })
+  it('work_days bo\'lmasa — umumiy sozlama', () => {
+    expect(employeeRestDays({}, { weekend_days: [0, 6] })).toEqual([0, 6])
+    expect(employeeRestDays({ work_days: [] }, { weekend_days: [0] })).toEqual([0])
+  })
+})
+
+describe('calcEmployeeSalary — individual sozlamalar', () => {
+  const settings = { ...baseSettings, weekend_days: [0, 6] } // umumiy: Shanba+Yakshanba dam
+  const emp = (extra) => ({
+    id: 'x', calc_type: 'hourly', hourly_rate: 25000,
+    work_start: '08:00', work_end: '17:00', lunch_minutes: 60, ...extra,
+  })
+  // 2026-08-01 — Shanba
+  const satRec = [rec('2026-08-01', '08:00:00', '17:00:00')]
+
+  it('ishchi Shanba ishlasa (work_days=Dush-Shan) — oddiy soat', () => {
+    const { summary } = calcEmployeeSalary({
+      employee: emp({ work_days: [1, 2, 3, 4, 5, 6] }), settings, month: '2026-08', records: satRec,
+    })
+    expect(summary.regular_hours).toBe(8)
+    expect(summary.weekend_hours).toBe(0)
+  })
+
+  it('ishchi Shanba ishlamasa (umumiy) — dam olish soati (x2)', () => {
+    const { summary } = calcEmployeeSalary({
+      employee: emp({}), settings, month: '2026-08', records: satRec,
+    })
+    expect(summary.weekend_hours).toBe(8)
+    expect(summary.weekend_pay).toBe(400000) // 8*25000*2
+  })
+
+  it('individual jarima override ishlaydi', () => {
+    const s = { ...baseSettings, weekend_days: [] }
+    const { summary } = calcEmployeeSalary({
+      employee: emp({ late_penalty_per_min: 1000 }), settings: s, month: '2026-08',
+      records: [rec('2026-08-06', '08:10:00', '17:00:00')], // 5 daq kech (grace 5)
+    })
+    expect(summary.total_late_minutes).toBe(5)
+    expect(summary.penalties).toBe(5000) // 5 * 1000 (override, global 500 emas)
   })
 })
 

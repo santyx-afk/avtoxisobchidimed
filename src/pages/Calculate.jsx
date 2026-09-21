@@ -1,14 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   Upload, FileSpreadsheet, Wallet, Timer, AlertTriangle, Eye, Server,
-  UserX, FileWarning, CheckCircle2, Loader2, Calculator, UserPlus,
+  UserX, FileWarning, CheckCircle2, Loader2, Calculator, UserPlus, RefreshCw,
 } from 'lucide-react'
 import { PageHeader, StatCard, EmptyState, PageLoader } from '../components/ui'
 import DataTable from '../components/DataTable'
 import SalaryDetail from '../components/SalaryDetail'
 import { formatSom, formatSigned, formatMonth, formatDateTime, minutesToHours } from '../lib/format'
 import { CALC_TYPE_LABEL, REPORT_SOURCE_LABEL } from '../lib/constants'
-import { processIvmsFile, computeReport, saveReport } from '../lib/runCalculation'
+import { processIvmsFile, computeReport, saveReport, recalculateMonth } from '../lib/runCalculation'
 import { groupRecordsByName } from '../lib/ivmsParser'
 import { loadMonthView } from '../lib/reportView'
 import * as db from '../lib/db'
@@ -43,7 +43,25 @@ export default function Calculate() {
   const [settings, setSettings] = useState(null)
   const [addingAll, setAddingAll] = useState(false)
   const [addedMsg, setAddedMsg] = useState('')
+  const [recalcing, setRecalcing] = useState(false)
   const fileRef = useRef(null)
+
+  // Ishchilar oyligi/sozlamasi o'zgargach — oyni qayta hisoblash
+  async function handleRecalc() {
+    if (!view?.month || recalcing) return
+    setRecalcing(true)
+    setError('')
+    setAddedMsg('')
+    try {
+      await recalculateMonth(view.month)
+      setView(await loadMonthView(view.month))
+      setAddedMsg('Oylik qayta hisoblandi.')
+    } catch (err) {
+      setError(err.message || 'Qayta hisoblashda xatolik')
+    } finally {
+      setRecalcing(false)
+    }
+  }
 
   async function refresh(month) {
     const [reps, st] = await Promise.all([db.listReports(), db.getSettings()])
@@ -140,7 +158,7 @@ export default function Calculate() {
         allSummaries: computed.allSummaries,
       })
       setView(buildView({ ...computed, report, month: view.month }, view.parsedRecords))
-      setAddedMsg(`${view.unmatchedNames.length} ta ishchi qo'shildi. Endi "Ishchilar" sahifasida ularning oylik summasi va turini sozlang.`)
+      setAddedMsg(`${view.unmatchedNames.length} ta ishchi qo'shildi. Endi "Ishchilar" sahifasida ularning oylik summasi va turini kiriting, so'ng shu yerda "Qayta hisoblash" tugmasini bosing.`)
     } catch (err) {
       setError(err.message || "Ishchilarni qo'shishda xatolik")
     } finally {
@@ -262,6 +280,10 @@ export default function Calculate() {
             <span className="text-slate-500 dark:text-slate-400">Fayl: {view.report?.file_name || '—'}</span>
             <span className="text-slate-500 dark:text-slate-400">Yuklangan: {formatDateTime(view.report?.uploaded_at)}</span>
             <span className="badge-slate">{REPORT_SOURCE_LABEL[view.report?.source] || '—'}</span>
+            <button onClick={handleRecalc} className="btn-secondary btn-sm ml-auto" disabled={recalcing} title="Ishchilar oyligi/sozlamasi o'zgargan bo'lsa bosing">
+              {recalcing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+              Qayta hisoblash
+            </button>
           </div>
 
           {/* Stats */}

@@ -1,15 +1,27 @@
 import { useEffect, useState } from 'react'
-import { Plus, Pencil, Trash2, Users, Clock, Building2 } from 'lucide-react'
+import { Plus, Pencil, Trash2, Users, Clock, Building2, AlertCircle, ChevronDown } from 'lucide-react'
 import { PageHeader, PageLoader, Modal, ConfirmDialog, Field, MoneyInput, Toggle } from '../components/ui'
 import DataTable from '../components/DataTable'
-import { formatSom, shortTime } from '../lib/format'
+import { formatSom, shortTime, WEEKDAY_SHORT_UZ } from '../lib/format'
 import { CALC_TYPE_LABEL } from '../lib/constants'
 import * as db from '../lib/db'
+
+// Dushanbadan boshlab tartib (0=Yakshanba oxirida)
+const WEEKDAY_ORDER = [1, 2, 3, 4, 5, 6, 0]
 
 const emptyForm = {
   name: '', calc_type: 'fix', monthly_salary: '', hourly_rate: '',
   work_start: '08:00', work_end: '17:00', lunch_minutes: 60,
   department: 'Dimed', position: '', is_active: true,
+  work_days: null, // null = umumiy sozlama; array = individual ish kunlari
+  grace_period_min: '', late_penalty_per_min: '',
+  overtime_multiplier: '', weekend_multiplier: '',
+}
+
+/** Ishchida oylik/stavka kiritilmaganmi? */
+function needsSalary(e) {
+  if (e.calc_type === 'fix') return !e.monthly_salary
+  return !e.hourly_rate
 }
 
 export default function Employees() {
@@ -61,7 +73,14 @@ export default function Employees() {
       header: 'Ism',
       render: (e) => (
         <div>
-          <div className="font-medium text-slate-800 dark:text-slate-100">{e.name}</div>
+          <div className="flex items-center gap-2 font-medium text-slate-800 dark:text-slate-100">
+            {e.name}
+            {needsSalary(e) && (
+              <span className="badge-amber" title="Oylik summasi kiritilmagan">
+                <AlertCircle className="h-3 w-3" /> Oylik yo'q
+              </span>
+            )}
+          </div>
           {e.position && <div className="text-xs text-slate-400">{e.position}</div>}
         </div>
       ),
@@ -197,12 +216,31 @@ function EmployeeForm({ employee, onClose, onSaved }) {
           ...employee,
           monthly_salary: employee.monthly_salary ?? '',
           hourly_rate: employee.hourly_rate ?? '',
+          work_days: Array.isArray(employee.work_days) ? employee.work_days : null,
+          grace_period_min: employee.grace_period_min ?? '',
+          late_penalty_per_min: employee.late_penalty_per_min ?? '',
+          overtime_multiplier: employee.overtime_multiplier ?? '',
+          weekend_multiplier: employee.weekend_multiplier ?? '',
         }
       : emptyForm,
   )
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
+  const [showAdvanced, setShowAdvanced] = useState(false)
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }))
+  const numOrNull = (v) => (v === '' || v === null || v === undefined ? null : Number(v))
+
+  function toggleWorkDay(day) {
+    setForm((f) => {
+      const current = f.work_days || []
+      const next = current.includes(day) ? current.filter((d) => d !== day) : [...current, day].sort()
+      return { ...f, work_days: next }
+    })
+  }
+  function toggleCustomDays(on) {
+    // yoqilganda standart: Dushanba–Shanba (1..6); o'chirilganda umumiy sozlama (null)
+    setForm((f) => ({ ...f, work_days: on ? [1, 2, 3, 4, 5, 6] : null }))
+  }
 
   async function onSubmit(e) {
     e.preventDefault()
@@ -223,6 +261,12 @@ function EmployeeForm({ employee, onClose, onSaved }) {
       department: form.department?.trim() || null,
       position: form.position?.trim() || null,
       is_active: form.is_active,
+      // Individual sozlamalar (null = umumiy sozlamadan foydalanadi)
+      work_days: Array.isArray(form.work_days) && form.work_days.length > 0 ? form.work_days : null,
+      grace_period_min: numOrNull(form.grace_period_min),
+      late_penalty_per_min: numOrNull(form.late_penalty_per_min),
+      overtime_multiplier: numOrNull(form.overtime_multiplier),
+      weekend_multiplier: numOrNull(form.weekend_multiplier),
     }
 
     setBusy(true)
@@ -293,6 +337,69 @@ function EmployeeForm({ employee, onClose, onSaved }) {
           <Field label="Lavozim">
             <input className="input" value={form.position} onChange={(e) => set('position', e.target.value)} placeholder="Hamshira" />
           </Field>
+        </div>
+
+        {/* Individual ish kunlari */}
+        <div className="rounded-xl border border-slate-200 p-3 dark:border-slate-700">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium text-slate-700 dark:text-slate-200">Individual ish kunlari</p>
+              <p className="text-xs text-slate-400">O'chirilsa — umumiy (Sozlamalar) dam olish kunlari ishlatiladi</p>
+            </div>
+            <Toggle checked={form.work_days !== null} onChange={toggleCustomDays} />
+          </div>
+          {form.work_days !== null && (
+            <div className="mt-3 flex flex-wrap gap-2">
+              {WEEKDAY_ORDER.map((day) => {
+                const active = form.work_days.includes(day)
+                return (
+                  <button
+                    type="button"
+                    key={day}
+                    onClick={() => toggleWorkDay(day)}
+                    className={`rounded-lg border px-3 py-1.5 text-sm font-medium transition-colors ${
+                      active
+                        ? 'border-brand-500 bg-brand-50 text-brand-700 dark:border-brand-500 dark:bg-brand-500/10 dark:text-brand-300'
+                        : 'border-slate-200 text-slate-400 hover:border-slate-300 dark:border-slate-700'
+                    }`}
+                  >
+                    {WEEKDAY_SHORT_UZ[day]}
+                  </button>
+                )
+              })}
+            </div>
+          )}
+        </div>
+
+        {/* Qo'shimcha (ixtiyoriy) sozlamalar */}
+        <div className="rounded-xl border border-slate-200 dark:border-slate-700">
+          <button
+            type="button"
+            onClick={() => setShowAdvanced((s) => !s)}
+            className="flex w-full items-center justify-between px-3 py-2.5 text-sm font-medium text-slate-700 dark:text-slate-200"
+          >
+            Qo'shimcha sozlamalar (ixtiyoriy)
+            <ChevronDown className={`h-4 w-4 transition-transform ${showAdvanced ? 'rotate-180' : ''}`} />
+          </button>
+          {showAdvanced && (
+            <div className="border-t border-slate-100 p-3 dark:border-slate-800">
+              <p className="mb-3 text-xs text-slate-400">Bo'sh qoldirilsa — umumiy (Sozlamalar) qiymatlari ishlatiladi.</p>
+              <div className="grid grid-cols-2 gap-4">
+                <Field label="Kech qolish jarimasi" hint="so'm/daqiqa">
+                  <input type="number" min="0" className="input tabular" value={form.late_penalty_per_min} onChange={(e) => set('late_penalty_per_min', e.target.value)} placeholder="umumiy" />
+                </Field>
+                <Field label="Grace period" hint="daqiqa">
+                  <input type="number" min="0" className="input tabular" value={form.grace_period_min} onChange={(e) => set('grace_period_min', e.target.value)} placeholder="umumiy" />
+                </Field>
+                <Field label="Overtime koeff." hint="masalan 1.5">
+                  <input type="number" step="0.1" min="1" className="input tabular" value={form.overtime_multiplier} onChange={(e) => set('overtime_multiplier', e.target.value)} placeholder="umumiy" />
+                </Field>
+                <Field label="Dam olish koeff." hint="masalan 2">
+                  <input type="number" step="0.1" min="1" className="input tabular" value={form.weekend_multiplier} onChange={(e) => set('weekend_multiplier', e.target.value)} placeholder="umumiy" />
+                </Field>
+              </div>
+            </div>
+          )}
         </div>
 
         <div className="flex items-center justify-between rounded-xl bg-slate-50 px-4 py-3 dark:bg-slate-800/50">

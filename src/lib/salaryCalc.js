@@ -10,6 +10,26 @@ import {
 const round = (n) => Math.round(Number(n) || 0)
 const round2 = (n) => Math.round((Number(n) || 0) * 100) / 100
 
+/** Override qiymati bo'lsa uni, aks holda global sozlamani qaytaradi */
+function numOr(value, fallback) {
+  if (value === null || value === undefined || value === '') return Number(fallback) || 0
+  const n = Number(value)
+  return Number.isNaN(n) ? Number(fallback) || 0 : n
+}
+
+/**
+ * Ishchining dam olish (ishlamaydigan) hafta kunlarini aniqlaydi.
+ * employee.work_days berilgan bo'lsa — undan tashqari kunlar dam olish;
+ * aks holda global settings.weekend_days ishlatiladi.
+ */
+export function employeeRestDays(employee, settings) {
+  const wd = employee.work_days
+  if (Array.isArray(wd) && wd.length > 0) {
+    return [0, 1, 2, 3, 4, 5, 6].filter((d) => !wd.includes(d))
+  }
+  return settings.weekend_days || [0]
+}
+
 /** Oydagi ish kunlari sonini hisoblaydi (dam olish kunlaridan tashqari) */
 export function expectedWorkDays(month, weekendDays = [0]) {
   const total = daysInMonth(month)
@@ -26,11 +46,13 @@ export function expectedWorkDays(month, weekendDays = [0]) {
  * @returns {{ summary: object, days: Array }}
  */
 export function calcEmployeeSalary({ employee, records = [], settings, advances = [], month }) {
-  const weekendDays = settings.weekend_days || [0]
-  const grace = Number(settings.grace_period_min) || 0
-  const penaltyPerMin = Number(settings.late_penalty_per_min) || 0
-  const otMult = Number(settings.overtime_multiplier) || 1
-  const weMult = Number(settings.weekend_multiplier) || 1
+  // Har bir ishchi uchun: work_days va override sozlamalar bo'lsa ular,
+  // aks holda global sozlamalar ishlatiladi.
+  const weekendDays = employeeRestDays(employee, settings)
+  const grace = numOr(employee.grace_period_min, settings.grace_period_min)
+  const penaltyPerMin = numOr(employee.late_penalty_per_min, settings.late_penalty_per_min)
+  const otMult = numOr(employee.overtime_multiplier, settings.overtime_multiplier) || 1
+  const weMult = numOr(employee.weekend_multiplier, settings.weekend_multiplier) || 1
 
   const workStart = timeToMinutes(employee.work_start) ?? 480
   const workEnd = timeToMinutes(employee.work_end) ?? 1020
