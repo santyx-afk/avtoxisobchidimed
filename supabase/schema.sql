@@ -20,10 +20,23 @@ create table if not exists public.employees (
   department     text,
   position       text,
   is_active      boolean not null default true,
+  -- Individual sozlamalar (NULL bo'lsa — umumiy sozlamadan foydalanadi)
+  work_days            jsonb,     -- ishlaydigan hafta kunlari, masalan [1,2,3,4,5,6]
+  grace_period_min     integer,   -- kechikish imtiyozi (override)
+  late_penalty_per_min integer,   -- kech qolish jarimasi (override)
+  overtime_multiplier  numeric,   -- overtime koeffitsienti (override)
+  weekend_multiplier   numeric,   -- dam olish koeffitsienti (override)
   created_at     timestamptz not null default now()
 );
 
 create index if not exists employees_name_idx on public.employees (name);
+
+-- Mavjud bazaga ustunlarni qo'shish (eski o'rnatishlar uchun — idempotent)
+alter table public.employees add column if not exists work_days            jsonb;
+alter table public.employees add column if not exists grace_period_min     integer;
+alter table public.employees add column if not exists late_penalty_per_min integer;
+alter table public.employees add column if not exists overtime_multiplier  numeric;
+alter table public.employees add column if not exists weekend_multiplier   numeric;
 
 -- ---------- Oylik hisobotlar (yuklangan fayllar) ----------
 create table if not exists public.monthly_reports (
