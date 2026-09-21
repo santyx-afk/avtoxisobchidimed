@@ -7,6 +7,7 @@ import {
 import { PageHeader, StatCard, PageLoader, EmptyState } from '../components/ui'
 import { formatSom, formatSigned, formatMonth, formatDateTime, minutesToHours } from '../lib/format'
 import { REPORT_SOURCE_LABEL } from '../lib/constants'
+import { syncAgentReports } from '../lib/agentStorage'
 import * as db from '../lib/db'
 
 export default function Dashboard() {
@@ -19,6 +20,8 @@ export default function Dashboard() {
 
   useEffect(() => {
     ;(async () => {
+      // Agent yuklagan yangi fayllarni tekshirish (faqat Supabase rejimida)
+      try { await syncAgentReports() } catch (e) { /* e'tiborsiz */ }
       const [emps, reps, st] = await Promise.all([db.listEmployees(), db.listReports(), db.getSettings()])
       setEmployees(emps)
       setReports(reps)
