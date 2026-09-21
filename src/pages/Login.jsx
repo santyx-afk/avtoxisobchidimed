@@ -3,7 +3,7 @@ import { useNavigate, useLocation, Navigate } from 'react-router-dom'
 import { Stethoscope, Eye, EyeOff, Sun, Moon, LogIn } from 'lucide-react'
 import { useAuth } from '../lib/auth'
 import { useTheme } from '../lib/theme'
-import { APP_NAME, APP_SUBTITLE } from '../lib/config'
+import { APP_NAME, APP_SUBTITLE, SUPABASE_AUTH } from '../lib/config'
 import { IS_DEMO } from '../lib/db'
 import { Spinner } from '../components/ui'
 
@@ -20,11 +20,11 @@ export default function Login() {
 
   if (user) return <Navigate to="/" replace />
 
-  function onSubmit(e) {
+  async function onSubmit(e) {
     e.preventDefault()
     setError('')
     setBusy(true)
-    const res = login(nickname, password)
+    const res = await login(nickname, password)
     setBusy(false)
     if (!res.ok) {
       setError(res.error)
@@ -57,12 +57,13 @@ export default function Login() {
 
         <form onSubmit={onSubmit} className="space-y-4">
           <div>
-            <label className="label">Nickname</label>
+            <label className="label">{SUPABASE_AUTH ? 'Email' : 'Nickname'}</label>
             <input
               className="input"
+              type={SUPABASE_AUTH ? 'email' : 'text'}
               value={nickname}
               onChange={(e) => setNickname(e.target.value)}
-              placeholder="admin"
+              placeholder={SUPABASE_AUTH ? 'siz@dimed.uz' : 'admin'}
               autoComplete="username"
               autoFocus
             />
@@ -101,7 +102,7 @@ export default function Login() {
           </button>
         </form>
 
-        {IS_DEMO && (
+        {IS_DEMO && !SUPABASE_AUTH && (
           <div className="mt-6 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-xs text-slate-500 dark:border-slate-700 dark:bg-slate-800/50 dark:text-slate-400">
             <p className="font-semibold text-slate-600 dark:text-slate-300">DEMO kirish ma'lumotlari:</p>
             <p className="mt-1">

@@ -152,6 +152,29 @@ begin
   end loop;
 end $$;
 
+-- ------------------------------------------------------------
+-- XAVFSIZROQ VARIANT (ixtiyoriy): Supabase Auth (VITE_SUPABASE_AUTH=true)
+-- ------------------------------------------------------------
+-- Supabase Auth yoqilганда anon o'rniga faqat tizimga kirgan (authenticated)
+-- foydalanuvchilarga ruxsat berish tavsiya etiladi. Buning uchun:
+--   1) Supabase -> Authentication da foydalanuvchilar yarating (email+parol).
+--   2) .env da VITE_SUPABASE_AUTH=true qiling.
+--   3) Yuqoridagi "allow_all" siyosatlarni o'chirib, quyidagini yoqing:
+--
+-- do $$
+-- declare t text;
+-- begin
+--   foreach t in array array[
+--     'employees','monthly_reports','attendance_records','salary_calculations','advances','settings'
+--   ]
+--   loop
+--     execute format('drop policy if exists "allow_all" on public.%I;', t);
+--     execute format('create policy "auth_all" on public.%I for all to authenticated using (true) with check (true);', t);
+--   end loop;
+-- end $$;
+--
+-- Storage uchun ham xuddi shunday: "for all to authenticated".
+
 -- ============================================================
 -- Storage bucket (IVMS agent yuklaydigan fayllar uchun)
 -- ============================================================
