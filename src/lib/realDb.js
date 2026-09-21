@@ -37,6 +37,15 @@ export async function createEmployeesBulk(list) {
   return out
 }
 
+export async function updateEmployeesBulk(updates) {
+  // updates: [{ id, patch }] — har birini alohida yangilaymiz (parallel)
+  await Promise.all(updates.map(async (u) => {
+    const { error } = await supabase.from('employees').update(u.patch).eq('id', u.id)
+    check(error)
+  }))
+  return updates.length
+}
+
 export async function updateEmployee(id, payload) {
   const { data, error } = await supabase.from('employees').update(payload).eq('id', id).select().single()
   check(error)

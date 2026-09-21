@@ -116,6 +116,18 @@ export async function updateEmployee(id, data) {
   return s.employees[idx]
 }
 
+export async function updateEmployeesBulk(updates) {
+  // updates: [{ id, patch }]
+  const s = load()
+  const byId = new Map(s.employees.map((e, i) => [e.id, i]))
+  for (const u of updates) {
+    const idx = byId.get(u.id)
+    if (idx != null) s.employees[idx] = { ...s.employees[idx], ...u.patch }
+  }
+  save(s)
+  return updates.length
+}
+
 export async function deleteEmployee(id) {
   const s = load()
   s.employees = s.employees.filter((e) => e.id !== id)
