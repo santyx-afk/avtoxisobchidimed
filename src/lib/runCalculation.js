@@ -4,6 +4,43 @@ import { calcEmployeeSalary } from './salaryCalc'
 import * as db from './db'
 
 /**
+ * Mavjud oyni qayta hisoblaydi (masalan avans qo'shilgach).
+ * Saqlangan attendance yozuvlaridan IVMS record shakliga qaytarib, qayta hisoblaydi.
+ * @returns {boolean} report topilib qayta hisoblandimi
+ */
+export async function recalculateMonth(month) {
+  const report = await db.getReportByMonth(month)
+  if (!report) return false
+  const [employees, settings, attendance] = await Promise.all([
+    db.listEmployees(),
+    db.getSettings(),
+    db.getAttendanceByReport(report.id),
+  ])
+
+  const byEmp = new Map()
+  for (const a of attendance) {
+    if (!byEmp.has(a.employee_id)) byEmp.set(a.employee_id, [])
+    byEmp.get(a.employee_id).push({
+      date: a.date,
+      dayOfWeek: a.day_of_week,
+      firstIn: a.check_in || '-',
+      lastOut: a.check_out || '-',
+    })
+  }
+
+  const summaries = []
+  for (const employee of employees) {
+    const records = byEmp.get(employee.id)
+    if (!records) continue
+    const advances = await db.getAdvancesByEmployeeMonth(employee.id, month)
+    const { summary } = calcEmployeeSalary({ employee, records, settings, advances, month })
+    summaries.push({ ...summary, report_id: report.id })
+  }
+  await db.replaceCalculationsForReport(report.id, summaries)
+  return true
+}
+
+/**
  * Parse qilingan yozuvlar asosida hisob-kitob (DB ga yozmasdan).
  * @param {{records: Array, month: string, employees: Array, settings: object, advancesByEmployee: Map}}
  */

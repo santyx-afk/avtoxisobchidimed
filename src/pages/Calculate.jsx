@@ -9,6 +9,7 @@ import SalaryDetail from '../components/SalaryDetail'
 import { formatSom, formatSigned, formatMonth, formatDateTime, minutesToHours } from '../lib/format'
 import { CALC_TYPE_LABEL, REPORT_SOURCE_LABEL } from '../lib/constants'
 import { processIvmsFile } from '../lib/runCalculation'
+import { loadMonthView } from '../lib/reportView'
 import * as db from '../lib/db'
 
 function readFileText(file) {
@@ -18,26 +19,6 @@ function readFileText(file) {
     reader.onerror = reject
     reader.readAsText(file)
   })
-}
-
-async function loadMonthView(month) {
-  const employees = await db.listEmployees()
-  const empMap = new Map(employees.map((e) => [e.id, e]))
-  const report = month ? await db.getReportByMonth(month) : await db.getLatestReport()
-  if (!report) return null
-  const [calcs, attendance] = await Promise.all([
-    db.getCalculationsByReport(report.id),
-    db.getAttendanceByReport(report.id),
-  ])
-  const daysByEmp = new Map()
-  for (const a of attendance) {
-    if (!daysByEmp.has(a.employee_id)) daysByEmp.set(a.employee_id, [])
-    daysByEmp.get(a.employee_id).push(a)
-  }
-  const results = calcs.map((c) => ({ employee: empMap.get(c.employee_id) || { name: '?', calc_type: 'fix' }, summary: c }))
-  const haveCalc = new Set(calcs.map((c) => c.employee_id))
-  const missingEmployees = employees.filter((e) => e.is_active && !haveCalc.has(e.id)).map((e) => e.name)
-  return { month: report.month, report, results, daysByEmp, unmatchedNames: [], missingEmployees }
 }
 
 export default function Calculate() {
