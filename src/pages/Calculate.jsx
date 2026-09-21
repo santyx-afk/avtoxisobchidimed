@@ -1,14 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   Upload, FileSpreadsheet, Wallet, Timer, AlertTriangle, Eye, Server,
-  UserX, FileWarning, CheckCircle2, Loader2, Calculator,
+  UserX, FileWarning, CheckCircle2, Loader2, Calculator, UserPlus,
 } from 'lucide-react'
 import { PageHeader, StatCard, EmptyState, PageLoader } from '../components/ui'
 import DataTable from '../components/DataTable'
 import SalaryDetail from '../components/SalaryDetail'
 import { formatSom, formatSigned, formatMonth, formatDateTime, minutesToHours } from '../lib/format'
 import { CALC_TYPE_LABEL, REPORT_SOURCE_LABEL } from '../lib/constants'
-import { processIvmsFile } from '../lib/runCalculation'
+import { processIvmsFile, computeReport, saveReport } from '../lib/runCalculation'
+import { groupRecordsByName } from '../lib/ivmsParser'
 import { loadMonthView } from '../lib/reportView'
 import * as db from '../lib/db'
 
@@ -21,6 +22,16 @@ function readFileText(file) {
   })
 }
 
+/** IVMS "Расписание" ustunidan ish vaqtini ajratadi: "08:00-17:00" -> {start,end} */
+function parseSchedule(schedule) {
+  const def = { start: '08:00', end: '17:00' }
+  if (!schedule) return def
+  const m = String(schedule).match(/(\d{1,2}):(\d{2})\D+(\d{1,2}):(\d{2})/)
+  if (!m) return def
+  const pad = (h) => String(h).padStart(2, '0')
+  return { start: `${pad(m[1])}:${m[2]}`, end: `${pad(m[3])}:${m[4]}` }
+}
+
 export default function Calculate() {
   const [loading, setLoading] = useState(true)
   const [reports, setReports] = useState([])
@@ -30,6 +41,8 @@ export default function Calculate() {
   const [dragOver, setDragOver] = useState(false)
   const [detail, setDetail] = useState(null)
   const [settings, setSettings] = useState(null)
+  const [addingAll, setAddingAll] = useState(false)
+  const [addedMsg, setAddedMsg] = useState('')
   const fileRef = useRef(null)
 
   async function refresh(month) {
@@ -46,33 +59,92 @@ export default function Calculate() {
     })()
   }, [])
 
+  function buildView(result, parsedRecords) {
+    const daysByEmp = new Map()
+    for (const d of result.allDays) {
+      if (!daysByEmp.has(d.employee_id)) daysByEmp.set(d.employee_id, [])
+      daysByEmp.get(d.employee_id).push(d)
+    }
+    return {
+      month: result.month,
+      report: result.report,
+      results: result.results,
+      daysByEmp,
+      unmatchedNames: result.unmatchedNames,
+      missingEmployees: result.missingEmployees,
+      parsedRecords, // avtomatik qo'shish uchun xom yozuvlar (yuklashdan keyin)
+    }
+  }
+
   async function handleFile(file) {
     if (!file) return
     setError('')
+    setAddedMsg('')
     setBusy(true)
     try {
       const html = await readFileText(file)
       const result = await processIvmsFile({ html, fileName: file.name, source: 'manual' })
-      const daysByEmp = new Map()
-      for (const d of result.allDays) {
-        if (!daysByEmp.has(d.employee_id)) daysByEmp.set(d.employee_id, [])
-        daysByEmp.get(d.employee_id).push(d)
-      }
       const reps = await db.listReports()
       setReports(reps)
-      setView({
-        month: result.month,
-        report: result.report,
-        results: result.results,
-        daysByEmp,
-        unmatchedNames: result.unmatchedNames,
-        missingEmployees: result.missingEmployees,
-      })
+      setView(buildView(result, result.parsed.records))
     } catch (err) {
       setError(err.message || "Faylni qayta ishlashda xatolik")
     } finally {
       setBusy(false)
       if (fileRef.current) fileRef.current.value = ''
+    }
+  }
+
+  // Faylda bor, tizimda yo'q ishchilarni avtomatik bazaga qo'shish + qayta hisoblash
+  async function autoAddEmployees() {
+    if (!view?.parsedRecords || addingAll) return
+    setAddingAll(true)
+    setError('')
+    try {
+      const grouped = groupRecordsByName(view.parsedRecords)
+      for (const name of view.unmatchedNames) {
+        const recs = grouped.get(name) || []
+        const first = recs.find((r) => r.department) || recs[0] || {}
+        const sched = parseSchedule(first.schedule)
+        await db.createEmployee({
+          name,
+          calc_type: 'fix',
+          monthly_salary: null, // keyin Ishchilar sahifasida to'ldiriladi
+          hourly_rate: null,
+          work_start: sched.start,
+          work_end: sched.end,
+          lunch_minutes: 60,
+          department: first.department || 'Dimed',
+          position: first.position || null,
+          is_active: true,
+        })
+      }
+
+      // Endi ismlar mos keladi — qayta hisoblaymiz
+      const [employees, st] = await Promise.all([db.listEmployees(), db.getSettings()])
+      const advancesByEmployee = new Map()
+      await Promise.all(
+        employees.filter((e) => e.is_active).map(async (e) => {
+          const adv = await db.getAdvancesByEmployeeMonth(e.id, view.month)
+          if (adv.length) advancesByEmployee.set(e.id, adv)
+        }),
+      )
+      const computed = computeReport({
+        records: view.parsedRecords, month: view.month, employees, settings: st, advancesByEmployee,
+      })
+      const report = await saveReport({
+        month: view.month,
+        fileName: view.report?.file_name,
+        source: view.report?.source || 'manual',
+        allDays: computed.allDays,
+        allSummaries: computed.allSummaries,
+      })
+      setView(buildView({ ...computed, report, month: view.month }, view.parsedRecords))
+      setAddedMsg(`${view.unmatchedNames.length} ta ishchi qo'shildi. Endi "Ishchilar" sahifasida ularning oylik summasi va turini sozlang.`)
+    } catch (err) {
+      setError(err.message || "Ishchilarni qo'shishda xatolik")
+    } finally {
+      setAddingAll(false)
     }
   }
 
@@ -172,6 +244,12 @@ export default function Calculate() {
         </div>
       )}
 
+      {addedMsg && (
+        <div className="mb-6 flex items-start gap-2 rounded-xl bg-emerald-50 px-4 py-3 text-sm text-emerald-600 dark:bg-emerald-500/10 dark:text-emerald-300">
+          <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" /> {addedMsg}
+        </div>
+      )}
+
       {!view ? (
         <EmptyState icon={Calculator} title="Hali hisob-kitob yo'q" description="Boshlash uchun IVMS faylni yuklang." />
       ) : (
@@ -199,12 +277,21 @@ export default function Calculate() {
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
               {view.unmatchedNames.length > 0 && (
                 <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 dark:border-amber-500/20 dark:bg-amber-500/10">
-                  <p className="flex items-center gap-2 text-sm font-semibold text-amber-700 dark:text-amber-300">
-                    <UserX className="h-4 w-4" /> Faylda bor, tizimda yo'q ({view.unmatchedNames.length})
-                  </p>
-                  <p className="mt-1 text-xs text-amber-600 dark:text-amber-400/80">Bu ismlar hech bir ishchiga mos kelmadi. Ishchilar sahifasida qo'shing yoki ismni tekshiring.</p>
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <p className="flex items-center gap-2 text-sm font-semibold text-amber-700 dark:text-amber-300">
+                      <UserX className="h-4 w-4" /> Faylda bor, tizimda yo'q ({view.unmatchedNames.length})
+                    </p>
+                    {view.parsedRecords && (
+                      <button onClick={autoAddEmployees} className="btn-primary btn-sm" disabled={addingAll}>
+                        {addingAll ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <UserPlus className="h-3.5 w-3.5" />}
+                        {addingAll ? 'Qo\'shilmoqda…' : 'Avtomatik qo\'shish'}
+                      </button>
+                    )}
+                  </div>
+                  <p className="mt-1 text-xs text-amber-600 dark:text-amber-400/80">Bu ismlar hech bir ishchiga mos kelmadi. "Avtomatik qo'shish" ular fayldagi ma'lumot (departament, ish vaqti) bilan bazaga qo'shadi — keyin oylik summasini kiritasiz.</p>
                   <div className="mt-2 flex flex-wrap gap-1">
                     {view.unmatchedNames.slice(0, 12).map((n) => <span key={n} className="badge-amber">{n}</span>)}
+                    {view.unmatchedNames.length > 12 && <span className="badge-amber">+{view.unmatchedNames.length - 12}</span>}
                   </div>
                 </div>
               )}
