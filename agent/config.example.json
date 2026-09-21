@@ -1,0 +1,22 @@
+{
+  "supabase_url": "https://YOUR_PROJECT.supabase.co",
+  "supabase_service_key": "SERVICE_ROLE_KEY_BU_YERGA",
+  "bucket": "ivms-reports",
+
+  "mode": "folder",
+  "target": "previous",
+
+  "schedule": {
+    "day": 1,
+    "hour": 10
+  },
+  "poll_minutes": 30,
+
+  "watch_folder": "C:\\IVMS-Export",
+
+  "isapi": {
+    "host": "192.168.1.64",
+    "username": "admin",
+    "password": "QURILMA_PAROLI"
+  }
+}
