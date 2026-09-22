@@ -167,9 +167,17 @@ export function calcEmployeeSalary({ employee, records = [], settings, advances 
     baseSalary = regularPay
     calculatedSalary = regularPay
   } else {
-    // fix oylik
-    baseSalary = Number(employee.monthly_salary) || 0
-    const dailyRate = expected > 0 ? baseSalary / expected : 0
+    // fix oylik yoki kunbay (daily) — ikkalasi ham kunlik stavka asosida
+    let dailyRate
+    if (employee.calc_type === 'daily') {
+      // Kunbay: kunlik summa to'g'ridan-to'g'ri kiritiladi
+      dailyRate = Number(employee.daily_rate) || 0
+      baseSalary = round(dailyRate * expected) // belgilangan: hamma ish kuni kelsa
+    } else {
+      // Fix: oylik ish kunlariga bo'linadi
+      baseSalary = Number(employee.monthly_salary) || 0
+      dailyRate = expected > 0 ? baseSalary / expected : 0
+    }
     const hourlyEquiv = scheduledHours > 0 ? dailyRate / scheduledHours : 0
     calculatedSalary = round(dailyRate * workingDaysPresent)
     absenceDeduction = round(dailyRate * absentDates.length)
@@ -182,7 +190,8 @@ export function calcEmployeeSalary({ employee, records = [], settings, advances 
 
   // --- Farq sabablari (notes) ---
   const notes = []
-  if (employee.calc_type === 'fix' && absentDates.length > 0) {
+  // Fix va kunbay uchun kelmagan kunlar jarima bo'ladi (soatbayda emas)
+  if (employee.calc_type !== 'hourly' && absentDates.length > 0) {
     const list = absentDates.map(formatDateShort).join(', ')
     notes.push(`${absentDates.length} kun kelmagan (${list}) — ${formatSom(-absenceDeduction)} so'm`)
   }
