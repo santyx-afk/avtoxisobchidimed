@@ -135,6 +135,38 @@ describe('calcEmployeeSalary — bayram kunlari', () => {
   })
 })
 
+describe('calcEmployeeSalary — kunbay (daily)', () => {
+  const employee = {
+    id: 'd', name: 'Kunbay', calc_type: 'daily', daily_rate: 150000,
+    work_start: '08:00', work_end: '17:00', lunch_minutes: 60,
+  }
+  const settings = { ...baseSettings, weekend_days: [] } // avgust 2026 = 31 ish kuni
+  const present = []
+  for (let d = 1; d <= 28; d++) {
+    present.push(rec(`2026-08-${String(d).padStart(2, '0')}`, '08:00:00', '17:00:00'))
+  }
+
+  it('kunlik summa × kelgan kunlar', () => {
+    const { summary } = calcEmployeeSalary({ employee, settings, month: '2026-08', records: present })
+    expect(summary.expected_work_days).toBe(31)
+    expect(summary.work_days).toBe(28)
+    expect(summary.base_salary).toBe(150000 * 31) // belgilangan: hamma kun kelsa
+    expect(summary.calculated_salary).toBe(150000 * 28) // real kelgan
+    expect(summary.net_salary).toBe(150000 * 28)
+    expect(summary.difference).toBe(150000 * 28 - 150000 * 31) // -450,000 (3 kun kelmagan)
+    expect(summary.notes).toContain('3 kun kelmagan')
+  })
+
+  it('avans va overtime hisobga olinadi', () => {
+    const advances = [{ amount: 500000, date: '2026-08-10' }]
+    const withOt = [...present, rec('2026-08-28', '08:00:00', '19:00:00')] // 28-kun overtime
+    const { summary } = calcEmployeeSalary({ employee, settings, month: '2026-08', records: withOt, advances })
+    expect(summary.advance_deduction).toBe(500000)
+    expect(summary.overtime_pay).toBeGreaterThan(0)
+    expect(summary.net_salary).toBe(summary.base_salary + summary.difference)
+  })
+})
+
 describe('calcEmployeeSalary — soatbay (hourly)', () => {
   const employee = {
     id: 'e1', name: 'Test', calc_type: 'hourly', hourly_rate: 25000,

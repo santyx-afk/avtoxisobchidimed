@@ -11,7 +11,7 @@ import * as db from '../lib/db'
 const WEEKDAY_ORDER = [1, 2, 3, 4, 5, 6, 0]
 
 const emptyForm = {
-  name: '', calc_type: 'fix', monthly_salary: '', hourly_rate: '',
+  name: '', calc_type: 'fix', monthly_salary: '', hourly_rate: '', daily_rate: '',
   work_start: '08:00', work_end: '17:00', lunch_minutes: 60,
   department: 'Dimed', position: '', is_active: true,
   work_days: null, // null = umumiy sozlama; array = individual ish kunlari
@@ -21,8 +21,9 @@ const emptyForm = {
 
 /** Ishchida oylik/stavka kiritilmaganmi? */
 function needsSalary(e) {
-  if (e.calc_type === 'fix') return !e.monthly_salary
-  return !e.hourly_rate
+  if (e.calc_type === 'hourly') return !e.hourly_rate
+  if (e.calc_type === 'daily') return !e.daily_rate
+  return !e.monthly_salary
 }
 
 export default function Employees() {
@@ -64,6 +65,7 @@ export default function Employees() {
     if (filter === 'active') return e.is_active
     if (filter === 'inactive') return !e.is_active
     if (filter === 'fix') return e.calc_type === 'fix'
+    if (filter === 'daily') return e.calc_type === 'daily'
     if (filter === 'hourly') return e.calc_type === 'hourly'
     return true
   })
@@ -100,12 +102,12 @@ export default function Employees() {
       key: 'salary',
       header: 'Oylik / Stavka',
       align: 'right',
-      sortValue: (e) => (e.calc_type === 'fix' ? e.monthly_salary : e.hourly_rate) || 0,
+      sortValue: (e) => (e.calc_type === 'fix' ? e.monthly_salary : e.calc_type === 'daily' ? e.daily_rate : e.hourly_rate) || 0,
       render: (e) => (
         <span className="tabular font-medium">
-          {e.calc_type === 'fix'
-            ? formatSom(e.monthly_salary)
-            : `${formatSom(e.hourly_rate)}/soat`}
+          {e.calc_type === 'fix' && formatSom(e.monthly_salary)}
+          {e.calc_type === 'hourly' && `${formatSom(e.hourly_rate)}/soat`}
+          {e.calc_type === 'daily' && `${formatSom(e.daily_rate)}/kun`}
         </span>
       ),
     },
@@ -150,6 +152,7 @@ export default function Employees() {
     ['all', 'Barchasi'],
     ['active', 'Faol'],
     ['fix', 'Fix'],
+    ['daily', 'Kunbay'],
     ['hourly', 'Soatbay'],
   ]
 
@@ -231,6 +234,7 @@ function EmployeeForm({ employee, onClose, onSaved }) {
           ...employee,
           monthly_salary: employee.monthly_salary ?? '',
           hourly_rate: employee.hourly_rate ?? '',
+          daily_rate: employee.daily_rate ?? '',
           work_days: Array.isArray(employee.work_days) ? employee.work_days : null,
           grace_period_min: employee.grace_period_min ?? '',
           late_penalty_per_min: employee.late_penalty_per_min ?? '',
@@ -263,6 +267,7 @@ function EmployeeForm({ employee, onClose, onSaved }) {
     if (!form.name.trim()) return setError('Ism kiritilishi shart (IVMS dagi ism bilan bir xil)')
     if (form.calc_type === 'fix' && !form.monthly_salary) return setError('Fix oylik uchun oylik summa kiriting')
     if (form.calc_type === 'hourly' && !form.hourly_rate) return setError('Soatbay uchun soat stavkasini kiriting')
+    if (form.calc_type === 'daily' && !form.daily_rate) return setError('Kunbay uchun kunlik summani kiriting')
     if (form.work_end === form.work_start) return setError("Ish boshlanishi va tugashi bir xil bo'lmasin")
     // Eslatma: tugash < boshlanish bo'lsa — tungi smena (yarim tundan o'tadi), bu ruxsat etiladi
 
@@ -271,6 +276,7 @@ function EmployeeForm({ employee, onClose, onSaved }) {
       calc_type: form.calc_type,
       monthly_salary: form.calc_type === 'fix' ? Number(form.monthly_salary) : null,
       hourly_rate: form.calc_type === 'hourly' ? Number(form.hourly_rate) : null,
+      daily_rate: form.calc_type === 'daily' ? Number(form.daily_rate) : null,
       work_start: form.work_start,
       work_end: form.work_end,
       lunch_minutes: Number(form.lunch_minutes) || 0,
@@ -304,8 +310,9 @@ function EmployeeForm({ employee, onClose, onSaved }) {
         </Field>
 
         <Field label="Hisoblash turi" required>
-          <div className="grid grid-cols-2 gap-2">
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
             {[['fix', 'Fix oylik', 'Belgilangan oylik, kunlarga bo\'linadi'],
+              ['daily', 'Kunbay', 'Kunlik summa × kelgan kunlar'],
               ['hourly', 'Soatbay', 'Ishlagan soatlar bo\'yicha']].map(([val, title, desc]) => (
               <button
                 type="button"
@@ -324,11 +331,17 @@ function EmployeeForm({ employee, onClose, onSaved }) {
           </div>
         </Field>
 
-        {form.calc_type === 'fix' ? (
+        {form.calc_type === 'fix' && (
           <Field label="Oylik summa (so'm)" required>
             <MoneyInput value={form.monthly_salary} onChange={(v) => set('monthly_salary', v)} placeholder="3,000,000" />
           </Field>
-        ) : (
+        )}
+        {form.calc_type === 'daily' && (
+          <Field label="Kunlik summa (so'm/kun)" hint="Kelgan kunlarга ko'paytiriladi" required>
+            <MoneyInput value={form.daily_rate} onChange={(v) => set('daily_rate', v)} placeholder="150,000" />
+          </Field>
+        )}
+        {form.calc_type === 'hourly' && (
           <Field label="Soat stavkasi (so'm/soat)" required>
             <MoneyInput value={form.hourly_rate} onChange={(v) => set('hourly_rate', v)} placeholder="25,000" />
           </Field>
@@ -517,7 +530,7 @@ function BulkSalaryModal({ employees, onClose, onSaved }) {
                   <tr key={m.id}>
                     <td className="table-td">{m.name}</td>
                     <td className="table-td">{CALC_TYPE_LABEL[m.calc_type]}</td>
-                    <td className="table-td text-right tabular font-medium">{formatSom(m.amount)}{m.calc_type === 'hourly' ? '/soat' : ''}</td>
+                    <td className="table-td text-right tabular font-medium">{formatSom(m.amount)}{m.calc_type === 'hourly' ? '/soat' : m.calc_type === 'daily' ? '/kun' : ''}</td>
                   </tr>
                 ))}
               </tbody>

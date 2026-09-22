@@ -33,6 +33,7 @@ export function parseBulkSalary(text) {
     if (parts[2]) {
       const t = parts[2].toLowerCase()
       if (t.startsWith('soat') || t === 'hourly' || t === 'h') type = 'hourly'
+      else if (t.startsWith('kun') || t === 'daily' || t === 'd') type = 'daily'
       else if (t.startsWith('fix') || t.startsWith('oylik') || t === 'f') type = 'fix'
     }
     out.push({ name, amount, type })
@@ -54,16 +55,12 @@ export function matchBulkSalary(rows, employees) {
     const emp = empByNorm.get(normalizeName(row.name))
     if (!emp) { unmatched.push(row); continue }
     const calc_type = row.type || emp.calc_type || 'fix'
-    matched.push({
-      id: emp.id,
-      name: emp.name,
-      calc_type,
-      amount: row.amount,
-      // yangilanadigan maydonlar
-      patch: calc_type === 'hourly'
-        ? { calc_type, hourly_rate: row.amount, monthly_salary: null }
-        : { calc_type, monthly_salary: row.amount, hourly_rate: null },
-    })
+    // Faqat tegishli maydon to'ldiriladi, qolganlari null
+    const patch = { calc_type, monthly_salary: null, hourly_rate: null, daily_rate: null }
+    if (calc_type === 'hourly') patch.hourly_rate = row.amount
+    else if (calc_type === 'daily') patch.daily_rate = row.amount
+    else patch.monthly_salary = row.amount
+    matched.push({ id: emp.id, name: emp.name, calc_type, amount: row.amount, patch })
   }
   return { matched, unmatched, invalid }
 }

@@ -10,10 +10,11 @@ create extension if not exists pgcrypto;
 create table if not exists public.employees (
   id             uuid primary key default gen_random_uuid(),
   name           text not null,                       -- IVMS dagi ism bilan aynan bir xil
-  calc_type      text not null default 'fix'          -- 'fix' yoki 'hourly'
-                 check (calc_type in ('fix', 'hourly')),
+  calc_type      text not null default 'fix'          -- 'fix', 'daily' yoki 'hourly'
+                 check (calc_type in ('fix', 'hourly', 'daily')),
   monthly_salary integer,                             -- fix oylik uchun (so'm)
-  hourly_rate    integer,                             -- soatbay uchun (so'm)
+  hourly_rate    integer,                             -- soatbay uchun (so'm/soat)
+  daily_rate     integer,                             -- kunbay uchun (so'm/kun)
   work_start     time not null default '08:00',
   work_end       time not null default '17:00',
   lunch_minutes  integer not null default 60,
@@ -37,6 +38,12 @@ alter table public.employees add column if not exists grace_period_min     integ
 alter table public.employees add column if not exists late_penalty_per_min integer;
 alter table public.employees add column if not exists overtime_multiplier  numeric;
 alter table public.employees add column if not exists weekend_multiplier   numeric;
+alter table public.employees add column if not exists daily_rate           integer;
+
+-- calc_type check ni yangilash (kunbay/'daily' qo'shildi) — eski o'rnatishlar uchun
+alter table public.employees drop constraint if exists employees_calc_type_check;
+alter table public.employees add constraint employees_calc_type_check
+  check (calc_type in ('fix', 'hourly', 'daily'));
 
 -- ---------- Oylik hisobotlar (yuklangan fayllar) ----------
 create table if not exists public.monthly_reports (

@@ -9,10 +9,11 @@ describe('parseBulkSalary', () => {
     expect(rows[1]).toMatchObject({ name: 'Karimov Sardor', amount: 3000000 })
   })
 
-  it('tur ustuni (soatbay/fix)', () => {
-    const rows = parseBulkSalary('Rahimov Jasur\t25000\tsoatbay\nX\t3000000\tfix')
+  it('tur ustuni (soatbay/fix/kunbay)', () => {
+    const rows = parseBulkSalary('Rahimov Jasur\t25000\tsoatbay\nX\t3000000\tfix\nY\t150000\tkunbay')
     expect(rows[0].type).toBe('hourly')
     expect(rows[1].type).toBe('fix')
+    expect(rows[2].type).toBe('daily')
   })
 
   it('probel ajratkich + vergulli minglar', () => {
@@ -52,7 +53,13 @@ describe('matchBulkSalary', () => {
   it('tur override — soatbay patch', () => {
     const rows = parseBulkSalary('Karimov Sardor\t20000\tsoatbay')
     const { matched } = matchBulkSalary(rows, employees)
-    expect(matched[0].patch).toMatchObject({ calc_type: 'hourly', hourly_rate: 20000, monthly_salary: null })
+    expect(matched[0].patch).toMatchObject({ calc_type: 'hourly', hourly_rate: 20000, monthly_salary: null, daily_rate: null })
+  })
+
+  it('tur override — kunbay patch', () => {
+    const rows = parseBulkSalary('Karimov Sardor\t150000\tkunbay')
+    const { matched } = matchBulkSalary(rows, employees)
+    expect(matched[0].patch).toMatchObject({ calc_type: 'daily', daily_rate: 150000, monthly_salary: null, hourly_rate: null })
   })
 
   it('mavjud bo\'lmagan ism — unmatched', () => {

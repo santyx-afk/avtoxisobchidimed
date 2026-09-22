@@ -20,11 +20,13 @@ export const DEFAULT_SETTINGS = {
 export const CALC_TYPE = {
   FIX: 'fix',
   HOURLY: 'hourly',
+  DAILY: 'daily',
 }
 
 export const CALC_TYPE_LABEL = {
   fix: 'Fix oylik',
   hourly: 'Soatbay',
+  daily: 'Kunbay',
 }
 
 export const REPORT_SOURCE_LABEL = {
