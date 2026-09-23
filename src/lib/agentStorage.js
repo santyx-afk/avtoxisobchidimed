@@ -4,6 +4,7 @@
 import { supabase } from './supabase'
 import { IVMS_BUCKET, isSupabaseConfigured } from './config'
 import { processIvmsFile } from './runCalculation'
+import { reportBufferToHtml } from './readReportFile'
 import * as db from './db'
 
 const MONTH_RE = /^\d{4}-\d{2}$/
@@ -66,7 +67,7 @@ export async function syncAgentReports() {
     try {
       const { data, error } = await supabase.storage.from(IVMS_BUCKET).download(file.path)
       if (error || !data) throw new Error(error?.message || 'yuklab olinmadi')
-      const html = await data.text()
+      const html = await reportBufferToHtml(await data.arrayBuffer())
       await processIvmsFile({ html, fileName: file.name, source: 'agent', expectedMonth: file.month })
       processed.push(file.month)
     } catch (e) {

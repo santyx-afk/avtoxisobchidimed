@@ -192,6 +192,9 @@ export function reportWarnings(parsed, computed) {
     const list = other.map(([m, n]) => `${m}: ${n} ta`).join(', ')
     warnings.push(`Faylda boshqa oy yozuvlari ham bor (${list}) — faqat ${parsed.month} hisoblandi.`)
   }
+  if (parsed?.meta?.skipped > 0) {
+    warnings.push(`Faylda ${parsed.meta.skipped} ta tanilmagan qator o'tkazib yuborildi (begona matn yoki buzilgan qator) — natijani tekshiring.`)
+  }
   if (computed?.ambiguousNames?.length) {
     warnings.push(`Bir xil ismlilarni ajratib bo'lmadi: ${computed.ambiguousNames.join(', ')} — "Ishchilar" sahifasida ularga IVMS ID kiriting.`)
   }

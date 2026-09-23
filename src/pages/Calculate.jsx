@@ -12,17 +12,9 @@ import {
   processIvmsFile, computeReport, saveReport, recalculateMonth, loadAdvancesByEmployee, rememberPersonIds,
 } from '../lib/runCalculation'
 import { loadMonthView } from '../lib/reportView'
+import { readReportFile } from '../lib/readReportFile'
 import { isMonthLocked, setMonthLocked } from '../lib/monthLock'
 import * as db from '../lib/db'
-
-function readFileText(file) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader()
-    reader.onload = () => resolve(reader.result)
-    reader.onerror = reject
-    reader.readAsText(file)
-  })
-}
 
 /** IVMS "Расписание" ustunidan ish vaqtini ajratadi: "08:00-17:00" -> {start,end} */
 function parseSchedule(schedule) {
@@ -117,7 +109,7 @@ export default function Calculate() {
     setAddedMsg('')
     setBusy(true)
     try {
-      const html = await readFileText(file)
+      const html = await readReportFile(file) // HTML-xls (UTF-8/16, 1251) yoki haqiqiy .xls/.xlsx
       const result = await processIvmsFile({ html, fileName: file.name, source: 'manual' })
       const reps = await db.listReports()
       setReports(reps)

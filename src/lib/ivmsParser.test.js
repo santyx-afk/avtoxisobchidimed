@@ -117,3 +117,25 @@ describe('parseIvmsHtml — oyni aniqlash', () => {
     expect(res.meta.monthCounts).toEqual({ '2026-07': 1, '2026-08': 3 })
   })
 })
+
+describe('parseIvmsHtml — qayta sinxronlash', () => {
+  it("o'rtadagi begona qator (\"Page 2\") keyingi yozuvlarni yo'qotmaydi", () => {
+    const html = SAMPLE.replace('<td>4</td><td>1002</td>', '<td>Page 2</td></tr><tr><td>4</td><td>1002</td>')
+    const res = parseIvmsHtml(html)
+    expect(res.records).toHaveLength(4)
+    expect(res.meta.skipped).toBe(1)
+  })
+
+  it('takrorlangan header begona qator deb sanalmaydi', () => {
+    const html = SAMPLE.replace('<td>4</td><td>1002</td>', '<td>№</td><td>Имя</td><td>Дата</td></tr><tr><td>4</td><td>1002</td>')
+    const res = parseIvmsHtml(html)
+    expect(res.records).toHaveLength(4)
+    expect(res.meta.skipped).toBe(0)
+  })
+
+  it("header qatori bo'lmasa ham yozuvlar o'qiladi", () => {
+    const res = parseIvmsHtml(SAMPLE.replace(/<tr>\s*<td>№<\/td>[\s\S]*?<\/tr>/, ''))
+    expect(res.records).toHaveLength(4)
+    expect(res.month).toBe('2026-08')
+  })
+})

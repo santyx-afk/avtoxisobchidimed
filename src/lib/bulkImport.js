@@ -24,7 +24,8 @@ export function parseBulkSalary(text) {
     parts = parts.map((p) => (p || '').trim())
 
     const name = parts[0]
-    const amount = parts[1] ? parseInt(parts[1].replace(/[^\d]/g, ''), 10) : NaN
+    // Kasr qismi (",00" / ".50") tashlanadi — aks holda "4 500 000,00" 450 000 000 bo'lib qolardi
+    const amount = parts[1] ? parseInt(parts[1].replace(/[.,]\d{1,2}\s*$/, '').replace(/[^\d]/g, ''), 10) : NaN
     if (!name || Number.isNaN(amount) || amount <= 0) {
       out.push({ name, amount: null, type: null, invalid: true })
       continue

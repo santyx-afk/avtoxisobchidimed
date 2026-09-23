@@ -170,6 +170,10 @@ to'g'ri hal qiladi. Ishchilar avval **IVMS ID** (`Идентификатор ч�
 "Ishchilar" sahifasida IVMS ID kiriting (fayl yuklanganda bir ma'noli moslanganlarga
 ID o'zi yoziladi). Oy — fayldagi eng ko'p uchragan oy; boshqa oy yozuvlari hisoblanmaydi.
 
+Fayl IVMS'ning HTML-xls ko'rinishida (UTF-8, UTF-16 yoki Windows-1251) yoki Excel'da
+ochib qayta saqlangan haqiqiy `.xls`/`.xlsx` bo'lishi mumkin. Orada begona yoki buzilgan
+qator bo'lsa, keyingi yozuvlar yo'qolmaydi (parser qayta sinxronlanadi) va ogohlantirish chiqadi.
+
 ---
 
 ## 🧮 Hisoblash mantig'i

@@ -69,3 +69,12 @@ describe('matchBulkSalary', () => {
     expect(unmatched[0].name).toBe('Yangi Odam')
   })
 })
+
+describe('parseBulkSalary — kasr qismi', () => {
+  it("kasr qismi summaga qo'shilib ketmaydi (\"4 500 000,00\" -> 4 500 000)", () => {
+    expect(parseBulkSalary('Ali Vali\t4 500 000,00')[0].amount).toBe(4500000)
+    expect(parseBulkSalary('Ali Vali\t4,500,000.00')[0].amount).toBe(4500000)
+    expect(parseBulkSalary('Ali Vali 4500000.5')[0].amount).toBe(4500000)
+    expect(parseBulkSalary('Ali Vali\t3,000,000')[0].amount).toBe(3000000)
+  })
+})

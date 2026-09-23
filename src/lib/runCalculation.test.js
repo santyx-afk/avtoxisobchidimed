@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { computeReport, saveReport, recalculateMonth } from './runCalculation'
+import { computeReport, saveReport, recalculateMonth, reportWarnings } from './runCalculation'
 import { setMonthLocked } from './monthLock'
 import * as db from './db'
 
@@ -142,5 +142,12 @@ describe('saqlash va qayta hisoblash (DEMO baza)', () => {
     await saveMonth('2099-09', [e])
     await expect(db.deleteEmployee(e.id)).rejects.toMatchObject({ code: '23503' })
     expect(await calcOf('2099-09', e.id)).toBeTruthy()
+  })
+})
+
+describe('reportWarnings', () => {
+  it("tanilmagan qatorlar haqida ogohlantiradi", () => {
+    const parsed = { month: '2026-08', meta: { skipped: 2, monthCounts: { '2026-08': 10 } } }
+    expect(reportWarnings(parsed, {}).join(' ')).toContain('2 ta tanilmagan qator')
   })
 })
