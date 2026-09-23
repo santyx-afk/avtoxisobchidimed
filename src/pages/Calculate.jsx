@@ -8,8 +8,9 @@ import DataTable from '../components/DataTable'
 import SalaryDetail from '../components/SalaryDetail'
 import { formatSom, formatSigned, formatMonth, formatDateTime, minutesToHours } from '../lib/format'
 import { CALC_TYPE_LABEL, REPORT_SOURCE_LABEL } from '../lib/constants'
-import { processIvmsFile, computeReport, saveReport, recalculateMonth } from '../lib/runCalculation'
-import { groupRecordsByName } from '../lib/ivmsParser'
+import {
+  processIvmsFile, computeReport, saveReport, recalculateMonth, loadAdvancesByEmployee, rememberPersonIds,
+} from '../lib/runCalculation'
 import { loadMonthView } from '../lib/reportView'
 import { isMonthLocked, setMonthLocked } from '../lib/monthLock'
 import * as db from '../lib/db'
@@ -103,7 +104,9 @@ export default function Calculate() {
       results: result.results,
       daysByEmp,
       unmatchedNames: result.unmatchedNames,
+      unmatched: result.unmatched || [], // avtomatik qo'shish uchun: { name, personId, records }
       missingEmployees: result.missingEmployees,
+      warnings: result.warnings || [],
       parsedRecords, // avtomatik qo'shish uchun xom yozuvlar (yuklashdan keyin)
     }
   }
@@ -129,18 +132,17 @@ export default function Calculate() {
 
   // Faylda bor, tizimda yo'q ishchilarni avtomatik bazaga qo'shish + qayta hisoblash
   async function autoAddEmployees() {
-    if (!view?.parsedRecords || addingAll) return
+    if (!view?.parsedRecords || !view.unmatched?.length || addingAll) return
     setAddingAll(true)
     setError('')
     try {
-      const grouped = groupRecordsByName(view.parsedRecords)
       // Barcha ishchini bitta batch bilan qo'shamiz (tez)
-      const payloads = view.unmatchedNames.map((name) => {
-        const recs = grouped.get(name) || []
-        const first = recs.find((r) => r.department) || recs[0] || {}
+      const payloads = view.unmatched.map(({ name, personId, records }) => {
+        const first = records.find((r) => r.department) || records[0] || {}
         const sched = parseSchedule(first.schedule)
         return {
           name,
+          ...(personId ? { ivms_person_id: personId } : {}), // keyingi oylarda ID bo'yicha moslanadi
           calc_type: 'fix',
           monthly_salary: null, // keyin Ishchilar sahifasida to'ldiriladi
           hourly_rate: null,
@@ -155,14 +157,9 @@ export default function Calculate() {
       await db.createEmployeesBulk(payloads)
 
       // Endi ismlar mos keladi — qayta hisoblaymiz
-      const [employees, st] = await Promise.all([db.listEmployees(), db.getSettings()])
-      const advancesByEmployee = new Map()
-      await Promise.all(
-        employees.filter((e) => e.is_active).map(async (e) => {
-          const adv = await db.getAdvancesByEmployeeMonth(e.id, view.month)
-          if (adv.length) advancesByEmployee.set(e.id, adv)
-        }),
-      )
+      const [employees, st, advancesByEmployee] = await Promise.all([
+        db.listEmployees(), db.getSettings(), loadAdvancesByEmployee(view.month),
+      ])
       const computed = computeReport({
         records: view.parsedRecords, month: view.month, employees, settings: st, advancesByEmployee,
       })
@@ -173,8 +170,9 @@ export default function Calculate() {
         allDays: computed.allDays,
         allSummaries: computed.allSummaries,
       })
-      setView(buildView({ ...computed, report, month: view.month }, view.parsedRecords))
-      setAddedMsg(`${view.unmatchedNames.length} ta ishchi qo'shildi. Endi "Ishchilar" sahifasida ularning oylik summasi va turini kiriting, so'ng shu yerda "Qayta hisoblash" tugmasini bosing.`)
+      await rememberPersonIds(computed.learnedPersonIds)
+      setView(buildView({ ...computed, report, month: view.month, warnings: view.warnings }, view.parsedRecords))
+      setAddedMsg(`${payloads.length} ta ishchi qo'shildi. Endi "Ishchilar" sahifasida ularning oylik summasi va turini kiriting, so'ng shu yerda "Qayta hisoblash" tugmasini bosing.`)
     } catch (err) {
       setError(err.message || "Ishchilarni qo'shishda xatolik")
     } finally {
@@ -317,6 +315,14 @@ export default function Calculate() {
             <StatCard icon={AlertTriangle} label="Farqli oyliklar" value={agg.diffs} hint="ishchi" tone="red" />
           </div>
 
+          {view.warnings?.length > 0 && (
+            <div className="space-y-1 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-700 dark:border-amber-500/20 dark:bg-amber-500/10 dark:text-amber-300">
+              {view.warnings.map((w) => (
+                <p key={w} className="flex items-start gap-2"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" /> {w}</p>
+              ))}
+            </div>
+          )}
+
           {/* Warnings */}
           {(view.unmatchedNames.length > 0 || view.missingEmployees.length > 0) && (
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
@@ -326,7 +332,7 @@ export default function Calculate() {
                     <p className="flex items-center gap-2 text-sm font-semibold text-amber-700 dark:text-amber-300">
                       <UserX className="h-4 w-4" /> Faylda bor, tizimda yo'q ({view.unmatchedNames.length})
                     </p>
-                    {view.parsedRecords && (
+                    {view.parsedRecords && view.unmatched?.length > 0 && (
                       <button onClick={autoAddEmployees} className="btn-primary btn-sm" disabled={addingAll}>
                         {addingAll ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <UserPlus className="h-3.5 w-3.5" />}
                         {addingAll ? 'Qo\'shilmoqda…' : 'Avtomatik qo\'shish'}

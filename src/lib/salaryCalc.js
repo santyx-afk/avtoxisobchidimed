@@ -5,6 +5,7 @@
 // FARQ SABABLARINI batafsil yozadi (notes).
 import {
   timeToMinutes, weekdayOfDate, daysInMonth, formatSom, formatDateShort, minutesToHours,
+  minutesToClock, addDays,
 } from './format'
 
 const round = (n) => Math.round(Number(n) || 0)
@@ -42,6 +43,62 @@ export function expectedWorkDays(month, weekendDays = [0]) {
 }
 
 /**
+ * IVMS yozuvlarini smenalarga aylantiradi: [{ date, dayOfWeek, inMin, outMin }].
+ * inMin/outMin — smena sanasining 00:00 idan daqiqalar (outMin 1440 dan oshishi mumkin);
+ * outMin = null — faqat bitta punch. Bir sanadagi bir nechta qator birlashtiriladi.
+ *
+ * Tungi smena (masalan 22:00–06:00): IVMS "birinchi/oxirgi kirish" hisoboti kalendar
+ * kuni bo'yicha, shuning uchun bir qatorda "kechagi smenadan chiqish (06:00) + bugungi
+ * smenaga kirish (22:00)" turadi. Punchlar smena boshlangan sanaga qayta taqsimlanadi:
+ * smena tugashi va boshlanishi o'rtasidan (22:00–06:00 uchun 14:00) keyingi punch —
+ * shu kungi smena, oldingisi — kechagi smena. `anchored` yozuvlar (saqlangan attendance)
+ * allaqachon smena sanasiga bog'langan.
+ */
+export function buildShifts(records, { workStart, workEnd }) {
+  const night = workEnd < workStart
+  const mid = (workStart + workEnd) / 2
+  const byDate = new Map()
+  const shiftOf = (date, dayOfWeek) => {
+    if (!byDate.has(date)) byDate.set(date, { date, dayOfWeek: '', punches: [] })
+    const s = byDate.get(date)
+    if (dayOfWeek && !s.dayOfWeek) s.dayOfWeek = dayOfWeek
+    return s
+  }
+
+  for (const r of records) {
+    if (!r?.date) continue
+    const tin = timeToMinutes(r.firstIn)
+    const tout = timeToMinutes(r.lastOut)
+    const own = shiftOf(r.date, r.dayOfWeek) // kelmagan kun ham smena sanasi sifatida qoladi
+    const times = [tin, tout !== tin ? tout : null].filter((t) => t != null)
+    // bitta qatorda chiqish < kirish — chiqish keyingi kalendar kunida (yarim tundan o'tgan)
+    const nextDay = (t) => tin != null && t < tin
+
+    for (const t of times) {
+      if (!night) own.punches.push(nextDay(t) ? t + 1440 : t)
+      else if (r.anchored) own.punches.push(t >= mid ? t : t + 1440)
+      else {
+        const date = nextDay(t) ? addDays(r.date, 1) : r.date
+        if (t >= mid) shiftOf(date).punches.push(t)
+        else shiftOf(addDays(date, -1)).punches.push(t + 1440)
+      }
+    }
+  }
+
+  return [...byDate.values()]
+    .sort((a, b) => (a.date < b.date ? -1 : 1))
+    .map((s) => {
+      const p = [...new Set(s.punches)].sort((a, b) => a - b)
+      return {
+        date: s.date,
+        dayOfWeek: s.dayOfWeek,
+        inMin: p.length ? p[0] : null,
+        outMin: p.length > 1 ? p[p.length - 1] : null,
+      }
+    })
+}
+
+/**
  * Bitta ishchi uchun oylikni hisoblaydi.
  * @returns {{ summary: object, days: Array }}
  */
@@ -66,17 +123,19 @@ export function calcEmployeeSalary({ employee, records = [], settings, advances 
   const holidaySet = new Set(settings.holidays || [])
   const isRestDay = (dateStr) => weekendDays.includes(weekdayOfDate(dateStr)) || holidaySet.has(dateStr)
 
+  // Smenalar — faqat shu oy (fayldagi boshqa oy yozuvlari hisobga olinmaydi)
+  const shifts = buildShifts(records, { workStart, workEnd })
+    .filter((s) => s.date.startsWith(`${month}-`))
+
   // --- Kelmagan kunlar (kalendar bo'yicha, ish kunlari) ---
-  const recByDate = new Map(records.map((r) => [r.date, r]))
+  const shiftByDate = new Map(shifts.map((s) => [s.date, s]))
   const totalDays = daysInMonth(month)
   let workingDaysPresent = 0
   const absentDates = []
   for (let d = 1; d <= totalDays; d++) {
     const dateStr = `${month}-${String(d).padStart(2, '0')}`
     if (isRestDay(dateStr)) continue // dam olish yoki bayram — kutilgan ish kuni emas
-    const rec = recByDate.get(dateStr)
-    const present = rec && timeToMinutes(rec.firstIn) != null
-    if (present) workingDaysPresent++
+    if (shiftByDate.get(dateStr)?.inMin != null) workingDaysPresent++
     else absentDates.push(dateStr)
   }
   const expected = workingDaysPresent + absentDates.length
@@ -88,39 +147,42 @@ export function calcEmployeeSalary({ employee, records = [], settings, advances 
   let weekendMinutes = 0
   let totalLate = 0
   let lateCount = 0
-  const lateDays = []
   const weekendWorkedDates = []
   const incompleteDays = []
   let presentDaysTotal = 0
 
-  for (const r of records) {
-    const isWeekend = isRestDay(r.date) // dam olish yoki bayram
-    const inMin = timeToMinutes(r.firstIn)
-    const outMin = timeToMinutes(r.lastOut)
+  for (const s of shifts) {
+    const isWeekend = isRestDay(s.date) // dam olish yoki bayram
+    const { inMin, outMin } = s
     let worked = 0
     let late = 0
     let ot = 0
 
     if (inMin != null) {
       presentDaysTotal++
-      if (outMin != null && outMin !== inMin) {
-        // Yarim tundan o'tgan bo'lsa (chiqish < kirish) — keyingi kunga o'tadi
-        const outAdj = outMin > inMin ? outMin : outMin + 1440
-        const raw = outAdj - inMin
-        worked = Math.max(0, raw - lunch)
-        if (!isWeekend) ot = Math.max(0, outAdj - workEndAdj)
+      if (outMin != null) {
+        worked = Math.max(0, outMin - inMin - lunch)
+        if (!isWeekend) {
+          late = Math.max(0, inMin - workStart - grace)
+          // Overtime — faqat jadvaldagi soatlar to'liq ishlangandan keyin:
+          // kech kelib kech ketish overtime emas
+          ot = Math.min(Math.max(0, outMin - workEndAdj), Math.max(0, worked - scheduledMinutes))
+        }
       } else {
-        // faqat bitta punch — to'liq ish kuni deb hisoblaymiz
+        // faqat bitta punch — to'liq ish kuni deb hisoblaymiz (izohda "tekshiring" deyiladi)
         worked = isWeekend ? 0 : scheduledMinutes
-        incompleteDays.push(r.date)
+        incompleteDays.push(s.date)
+        // Punch smena boshiga yaqin — kirish (kechikish hisoblanadi); oxiriga yaqin —
+        // chiqish (kirish punchi unutilgan), bundan kechikish chiqarib bo'lmaydi
+        const isArrival = inMin - workStart < (workEndAdj - workStart) / 2
+        if (!isWeekend && isArrival) late = Math.max(0, inMin - workStart - grace)
       }
-      if (!isWeekend) late = Math.max(0, inMin - workStart - grace)
     }
 
     if (isWeekend) {
       if (worked > 0) {
         weekendMinutes += worked
-        weekendWorkedDates.push(r.date)
+        weekendWorkedDates.push(s.date)
       }
     } else {
       regularMinutes += Math.max(0, worked - ot)
@@ -129,15 +191,14 @@ export function calcEmployeeSalary({ employee, records = [], settings, advances 
     if (late > 0) {
       totalLate += late
       lateCount++
-      lateDays.push(r.date)
     }
 
     days.push({
       employee_id: employee.id,
-      date: r.date,
-      day_of_week: r.dayOfWeek || '',
-      check_in: r.firstIn || null,
-      check_out: r.lastOut || null,
+      date: s.date,
+      day_of_week: s.dayOfWeek || '',
+      check_in: inMin != null ? minutesToClock(inMin) : null,
+      check_out: outMin != null ? minutesToClock(outMin) : null,
       is_weekend: isWeekend,
       worked_minutes: round(worked),
       late_minutes: round(late),
@@ -214,7 +275,7 @@ export function calcEmployeeSalary({ employee, records = [], settings, advances 
     notes.unshift(`Ishlagan soat: ${totalHours} — asos ${formatSom(baseSalary)} so'm`)
   }
   if (incompleteDays.length > 0) {
-    notes.push(`${incompleteDays.length} kun chiqish vaqti yo'q — to'liq kun hisoblandi (${incompleteDays.map(formatDateShort).join(', ')})`)
+    notes.push(`${incompleteDays.length} kun faqat bitta punch (kirish yoki chiqish yo'q) — to'liq kun hisoblandi, tekshiring (${incompleteDays.map(formatDateShort).join(', ')})`)
   }
   if (notes.length === 0) {
     notes.push('Farq yo\'q — belgilangan oylik to\'liq hisoblandi')

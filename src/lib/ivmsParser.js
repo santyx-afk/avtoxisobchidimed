@@ -131,14 +131,24 @@ export function parseIvmsHtml(html) {
   const names = [...new Set(records.map((r) => r.name))].sort()
   const departments = [...new Set(records.map((r) => r.department).filter(Boolean))].sort()
 
+  // Oy — yozuvlarda eng ko'p uchragan oy (diapazon bir necha oyni qamrasa ham to'g'ri,
+  // masalan "07-25 — 08-31" -> 2026-08). Yozuv bo'lmasa — sarlavhadagi diapazondan.
+  const monthCounts = {}
+  for (const r of records) {
+    const m = r.date.slice(0, 7)
+    monthCounts[m] = (monthCounts[m] || 0) + 1
+  }
+  const dominant = Object.keys(monthCounts).sort((a, b) => monthCounts[b] - monthCounts[a])[0]
+
   return {
-    month: month || (records[0] ? records[0].date.slice(0, 7) : null),
+    month: dominant || month,
     records,
     meta: {
       totalRows: rows.length,
       skipped,
       names,
       departments,
+      monthCounts,
     },
   }
 }

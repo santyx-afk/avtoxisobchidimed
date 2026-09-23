@@ -165,7 +165,10 @@ Row 4+: ma'lumotlar
 
 Parser (`src/lib/ivmsParser.js`) barcha katakchalarni tekislaydi va **11 ustunlik
 chunklarga** bo'ladi — bu bitta `<tr>` ichida bir nechta yozuv kelgan holatni ham
-to'g'ri hal qiladi. Ishchilar IVMS dagi **ism** bo'yicha moslanadi.
+to'g'ri hal qiladi. Ishchilar avval **IVMS ID** (`Идентификатор человека`), bo'lmasa
+**ism** bo'yicha moslanadi. Bir xil ismlilar avtomatik moslanmaydi — ularga
+"Ishchilar" sahifasida IVMS ID kiriting (fayl yuklanganda bir ma'noli moslanganlarga
+ID o'zi yoziladi). Oy — fayldagi eng ko'p uchragan oy; boshqa oy yozuvlari hisoblanmaydi.
 
 ---
 
@@ -175,9 +178,14 @@ to'g'ri hal qiladi. Ishchilar IVMS dagi **ism** bo'yicha moslanadi.
 
 1. **Ish soatlari** = chiqish − kirish − tushlik
 2. **Kech qolish** = kirish − ish boshlanishi − grace; jarima = daqiqa × narx
-3. **Overtime** = ish tugashidan keyingi soatlar × koeffitsient (default 1.5×)
+3. **Overtime** = ish tugashidan keyingi soatlar × koeffitsient (default 1.5×) — faqat
+   jadvaldagi soatlar to'liq ishlangandan keyin (kech kelib kech ketish overtime emas)
 4. **Dam olish kuni** ishlagan soatlar × koeffitsient (default 2×)
 5. **Avans** oylikdan ushlab qolinadi
+6. **Bitta punch** (kirish yoki chiqish yo'q) — to'liq kun hisoblanadi va izohda
+   "tekshiring" deb chiqadi; punch chiqishga o'xshasa kechikish yozilmaydi
+7. **Tungi smena** (masalan 22:00–06:00) — IVMS kalendar kuni bo'yicha bergan punchlar
+   smena boshlangan sanaga juftlanadi (06:00 — kechagi smena, 22:00 — bugungi)
 
 **Fix oylik:** `kunlik = oylik / ish_kunlari`; kelgan kunlarga ko'paytiriladi.
 **Soatbay:** ishlagan soatlar × stavka.

@@ -11,7 +11,7 @@ import * as db from '../lib/db'
 const WEEKDAY_ORDER = [1, 2, 3, 4, 5, 6, 0]
 
 const emptyForm = {
-  name: '', calc_type: 'fix', monthly_salary: '', hourly_rate: '', daily_rate: '',
+  name: '', ivms_person_id: '', calc_type: 'fix', monthly_salary: '', hourly_rate: '', daily_rate: '',
   work_start: '08:00', work_end: '17:00', lunch_minutes: 60,
   department: 'Dimed', position: '', is_active: true,
   work_days: null, // null = umumiy sozlama; array = individual ish kunlari
@@ -91,12 +91,11 @@ export default function Employees() {
     {
       key: 'calc_type',
       header: 'Turi',
-      render: (e) =>
-        e.calc_type === 'fix' ? (
-          <span className="badge-brand">{CALC_TYPE_LABEL.fix}</span>
-        ) : (
-          <span className="badge-amber">{CALC_TYPE_LABEL.hourly}</span>
-        ),
+      render: (e) => (
+        <span className={e.calc_type === 'fix' ? 'badge-brand' : 'badge-amber'}>
+          {CALC_TYPE_LABEL[e.calc_type] || e.calc_type}
+        </span>
+      ),
     },
     {
       key: 'salary',
@@ -232,6 +231,7 @@ function EmployeeForm({ employee, onClose, onSaved }) {
       ? {
           ...emptyForm,
           ...employee,
+          ivms_person_id: employee.ivms_person_id ?? '',
           monthly_salary: employee.monthly_salary ?? '',
           hourly_rate: employee.hourly_rate ?? '',
           daily_rate: employee.daily_rate ?? '',
@@ -290,6 +290,10 @@ function EmployeeForm({ employee, onClose, onSaved }) {
       overtime_multiplier: numOrNull(form.overtime_multiplier),
       weekend_multiplier: numOrNull(form.weekend_multiplier),
     }
+    // IVMS ID — bo'sh bo'lsa ism bo'yicha moslanadi. Kalit faqat kerak bo'lganda yuboriladi
+    // (sxema hali yangilanmagan bazada ham ishchini saqlash ishlashi uchun)
+    const pid = String(form.ivms_person_id ?? '').trim()
+    if (pid || employee?.ivms_person_id) payload.ivms_person_id = pid || null
 
     setBusy(true)
     try {
@@ -307,6 +311,10 @@ function EmployeeForm({ employee, onClose, onSaved }) {
       <form onSubmit={onSubmit} className="space-y-4">
         <Field label="Ism (IVMS dagi bilan aynan bir xil)" required>
           <input className="input" value={form.name} onChange={(e) => set('name', e.target.value)} placeholder="Aliyeva Nigora" autoFocus />
+        </Field>
+
+        <Field label="IVMS ID (ixtiyoriy)" hint="IVMS dagi «Идентификатор человека». Kiritilsa — ism o'rniga shu bo'yicha moslanadi (bir xil ismlilar uchun kerak). Fayl yuklanganda avtomatik to'ldiriladi.">
+          <input className="input tabular" value={form.ivms_person_id} onChange={(e) => set('ivms_person_id', e.target.value)} placeholder="masalan 1001" />
         </Field>
 
         <Field label="Hisoblash turi" required>

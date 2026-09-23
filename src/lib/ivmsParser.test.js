@@ -106,3 +106,14 @@ describe('parseIvmsHtml — chegara holatlar', () => {
     expect(res.records.filter((r) => r.name === 'Karimov Sardor' && r.date === '2026-08-04')).toHaveLength(1)
   })
 })
+
+describe('parseIvmsHtml — oyni aniqlash', () => {
+  it("diapazon ikki oyni qamrasa, yozuvlar ko'p bo'lgan oy olinadi", () => {
+    const html = SAMPLE
+      .replace('2026-08-01 00:00:00 - 2026-08-31', '2026-07-25 00:00:00 - 2026-08-31')
+      .replace('<td>2026-08-01</td>', '<td>2026-07-31</td>')
+    const res = parseIvmsHtml(html)
+    expect(res.month).toBe('2026-08')
+    expect(res.meta.monthCounts).toEqual({ '2026-07': 1, '2026-08': 3 })
+  })
+})

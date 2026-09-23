@@ -8,6 +8,25 @@ function check(error) {
   if (error) throw new Error(error.message || 'Supabase xatosi')
 }
 
+const PAGE = 1000
+
+/**
+ * Jadvaldan barcha mos qatorlarni sahifalab o'qiydi. Supabase bitta so'rovga ko'pi bilan
+ * "Max rows" (standart 1000) qator qaytaradi — busiz ~33+ ishchida davomat jimgina kesilib,
+ * qayta hisoblashda yetishmagan kunlar "kelmagan" deb oylikdan ushlanardi.
+ */
+async function selectAll(table, build = (q) => q) {
+  const out = []
+  for (;;) {
+    const { data, count, error } = await build(supabase.from(table).select('*', { count: 'exact' }))
+      .order('id')
+      .range(out.length, out.length + PAGE - 1)
+    check(error)
+    out.push(...(data || []))
+    if (!data?.length || out.length >= (count ?? 0)) return out
+  }
+}
+
 // Seed real DB da qo'lda (SQL seed) qilinadi — bu yerda no-op
 export function seedIfEmpty() {}
 export function registerDemoReportBuilder() {}
@@ -15,9 +34,7 @@ export async function resetDemoData() {}
 
 // ---------- Employees ----------
 export async function listEmployees() {
-  const { data, error } = await supabase.from('employees').select('*').order('name')
-  check(error)
-  return data || []
+  return selectAll('employees', (q) => q.order('name'))
 }
 
 export async function createEmployee(payload) {
@@ -83,9 +100,7 @@ export async function updateSettings(partial) {
 
 // ---------- Reports ----------
 export async function listReports() {
-  const { data, error } = await supabase.from('monthly_reports').select('*').order('month', { ascending: false })
-  check(error)
-  return data || []
+  return selectAll('monthly_reports', (q) => q.order('month', { ascending: false }))
 }
 
 export async function getReport(id) {
@@ -133,9 +148,7 @@ export async function deleteReport(id) {
 
 // ---------- Attendance ----------
 export async function getAttendanceByReport(reportId) {
-  const { data, error } = await supabase.from('attendance_records').select('*').eq('report_id', reportId)
-  check(error)
-  return data || []
+  return selectAll('attendance_records', (q) => q.eq('report_id', reportId))
 }
 
 export async function replaceAttendanceForReport(reportId, records) {
@@ -151,9 +164,7 @@ export async function replaceAttendanceForReport(reportId, records) {
 
 // ---------- Salary calculations ----------
 export async function getCalculationsByReport(reportId) {
-  const { data, error } = await supabase.from('salary_calculations').select('*').eq('report_id', reportId)
-  check(error)
-  return data || []
+  return selectAll('salary_calculations', (q) => q.eq('report_id', reportId))
 }
 
 export async function getCalculationsByMonth(month) {
@@ -174,8 +185,7 @@ export async function replaceCalculationsForReport(reportId, records) {
 }
 
 export async function getCalculationsForEmployee(employeeId) {
-  const { data, error } = await supabase.from('salary_calculations').select('*').eq('employee_id', employeeId)
-  check(error)
+  const data = await selectAll('salary_calculations', (q) => q.eq('employee_id', employeeId))
   const reports = await listReports()
   const byId = new Map(reports.map((r) => [r.id, r]))
   return (data || [])
@@ -185,12 +195,12 @@ export async function getCalculationsForEmployee(employeeId) {
 
 // ---------- Advances ----------
 export async function listAdvances({ month, employeeId } = {}) {
-  let q = supabase.from('advances').select('*').order('date', { ascending: false })
-  if (month) q = q.eq('month', month)
-  if (employeeId) q = q.eq('employee_id', employeeId)
-  const { data, error } = await q
-  check(error)
-  return data || []
+  return selectAll('advances', (q) => {
+    let x = q.order('date', { ascending: false })
+    if (month) x = x.eq('month', month)
+    if (employeeId) x = x.eq('employee_id', employeeId)
+    return x
+  })
 }
 
 export async function getAdvancesByEmployeeMonth(employeeId, month) {

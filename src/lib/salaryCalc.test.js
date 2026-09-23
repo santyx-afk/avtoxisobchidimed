@@ -275,3 +275,82 @@ describe('calcEmployeeSalary — fix oylik', () => {
     expect(days[0]).toMatchObject({ date: '2026-08-01', check_in: '08:00:00', worked_minutes: 480 })
   })
 })
+
+describe('calcEmployeeSalary — sharhda topilgan xatolar', () => {
+  const fix = {
+    id: 'f6', name: 'Fix', calc_type: 'fix', monthly_salary: 6000000,
+    work_start: '08:00', work_end: '17:00', lunch_minutes: 60,
+  }
+  const settings = { ...baseSettings, weekend_days: [0] }
+  const calc = (employee, records, s = settings) =>
+    calcEmployeeSalary({ employee, settings: s, month: '2026-08', records }).summary
+
+  it("bitta punch — faqat kechki chiqish (kirish unutilgan): kechikish jarimasi yo'q", () => {
+    const s = calc(fix, [rec('2026-08-03', '17:05:00', '17:05:00')])
+    expect(s.total_late_minutes).toBe(0)
+    expect(s.penalties).toBe(0)
+    expect(s.notes).toContain('bitta punch')
+  })
+
+  it('bitta punch — ertalabki kech kirish: kechikish hisoblanadi', () => {
+    const s = calc(fix, [rec('2026-08-03', '08:30:00', '-')])
+    expect(s.total_late_minutes).toBe(25)
+  })
+
+  it("kech kelib kech ketish (10:00–19:00) overtime emas — oddiy kundan ko'p to'lanmaydi", () => {
+    const normal = calc(fix, [rec('2026-08-03', '08:00:00', '17:00:00')])
+    const shifted = calc(fix, [rec('2026-08-03', '10:00:00', '19:00:00')])
+    expect(shifted.overtime_hours).toBe(0)
+    expect(shifted.net_salary).toBeLessThan(normal.net_salary) // faqat kechikish jarimasi
+  })
+
+  it("sekundlar yuqoriga yaxlitlanmaydi: 08:05:59 (grace 5) — kechikish yo'q", () => {
+    expect(calc(fix, [rec('2026-08-03', '08:05:59', '17:00:00')]).total_late_minutes).toBe(0)
+  })
+
+  it('boshqa oy yozuvlari hisobga olinmaydi', () => {
+    const hourly = { ...fix, calc_type: 'hourly', hourly_rate: 25000 }
+    const s = calc(hourly, [rec('2026-08-03', '08:00:00', '17:00:00'), rec('2026-09-01', '08:00:00', '17:00:00')])
+    expect(s.regular_hours).toBe(8)
+    expect(s.work_days).toBe(1)
+  })
+
+  describe('tungi smena — IVMS kalendar kuni formati', () => {
+    const guard = {
+      id: 'g2', calc_type: 'hourly', hourly_rate: 25000,
+      work_start: '22:00', work_end: '06:00', lunch_minutes: 0,
+    }
+    const s0 = { ...baseSettings, weekend_days: [] }
+    // Har qator: kechagi smenadan chiqish (06:00) + bugungi smenaga kirish (22:00)
+    const split = [
+      rec('2026-08-03', '21:58:00', '21:58:00'), // 1-smena boshlanishi (faqat kirish)
+      rec('2026-08-04', '06:00:00', '22:00:00'),
+      rec('2026-08-05', '06:00:00', '22:10:00'), // 3-smenaga 10 daqiqa kech
+      rec('2026-08-06', '06:02:00', '-'),
+    ]
+
+    it('har smena 8 soat (16 emas), kechikish to\'g\'ri', () => {
+      const s = calc(guard, split, s0)
+      expect(s.work_days).toBe(3)
+      expect(s.regular_hours).toBe(23.9) // 8:02 + 8:00 + 7:52 (kechikkan) = 1434 daq
+      expect(s.overtime_hours).toBe(0)
+      expect(s.total_late_minutes).toBe(5) // 22:10 - 22:00 - grace 5
+      expect(s.net_salary).toBe(595000) // 1434/60 * 25000 − 5 daq × 500 jarima
+    })
+
+    it("yarim tundan keyin kelgan qorovul (00:10) — kech qolgan", () => {
+      const s = calc(guard, [rec('2026-08-04', '00:10:00', '06:00:00')], s0)
+      expect(s.total_late_minutes).toBe(125) // 00:10 = 22:00 + 130 daqiqa, grace 5
+      expect(s.regular_hours).toBeCloseTo(5.83, 2)
+    })
+
+    it('saqlangan (anchored) smenalardan qayta hisoblash bir xil natija beradi', () => {
+      const first = calcEmployeeSalary({ employee: guard, settings: s0, month: '2026-08', records: split })
+      const again = calcEmployeeSalary({
+        employee: guard, settings: s0, month: '2026-08',
+        records: first.days.map((d) => ({ date: d.date, firstIn: d.check_in, lastOut: d.check_out, anchored: true })),
+      })
+      expect(again.summary).toEqual(first.summary)
+    })
+  })
+})

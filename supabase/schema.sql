@@ -10,6 +10,7 @@ create extension if not exists pgcrypto;
 create table if not exists public.employees (
   id             uuid primary key default gen_random_uuid(),
   name           text not null,                       -- IVMS dagi ism bilan aynan bir xil
+  ivms_person_id text,                                -- IVMS "Идентификатор человека" (ixtiyoriy)
   calc_type      text not null default 'fix'          -- 'fix', 'daily' yoki 'hourly'
                  check (calc_type in ('fix', 'hourly', 'daily')),
   monthly_salary integer,                             -- fix oylik uchun (so'm)
@@ -39,6 +40,11 @@ alter table public.employees add column if not exists late_penalty_per_min integ
 alter table public.employees add column if not exists overtime_multiplier  numeric;
 alter table public.employees add column if not exists weekend_multiplier   numeric;
 alter table public.employees add column if not exists daily_rate           integer;
+alter table public.employees add column if not exists ivms_person_id       text;
+
+-- IVMS ID bo'yicha moslash (bir xil ismlilarni ajratish uchun) — takrorlanmas
+create unique index if not exists employees_ivms_person_id_key
+  on public.employees (ivms_person_id) where ivms_person_id is not null;
 
 -- calc_type check ni yangilash (kunbay/'daily' qo'shildi) — eski o'rnatishlar uchun
 alter table public.employees drop constraint if exists employees_calc_type_check;
