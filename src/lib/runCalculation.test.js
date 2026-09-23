@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest'
-import { computeReport } from './runCalculation'
+import { computeReport, saveReport, recalculateMonth } from './runCalculation'
+import { setMonthLocked } from './monthLock'
+import * as db from './db'
 
 const settings = {
   weekend_days: [], late_penalty_per_min: 500, grace_period_min: 5,
@@ -95,5 +97,50 @@ describe('computeReport — IVMS ID va bir xil ismlar', () => {
     })
     expect(results).toHaveLength(0)
     expect(unmatchedNames).toHaveLength(0)
+  })
+})
+
+describe('saqlash va qayta hisoblash (DEMO baza)', () => {
+  const dbEmp = (name) => db.createEmployee({
+    name, calc_type: 'fix', monthly_salary: 3000000, work_start: '08:00', work_end: '17:00', lunch_minutes: 60,
+  })
+  async function saveMonth(month, employees) {
+    const s = await db.getSettings()
+    const records = employees.map((e) => rec(e.name, `${month}-01`, '08:00:00', '17:00:00'))
+    const computed = computeReport({ records, month, employees, settings: s })
+    return saveReport({
+      month, fileName: 'x.xls', source: 'manual', allDays: computed.allDays, allSummaries: computed.allSummaries, settings: s,
+    })
+  }
+  const calcOf = async (month, id) => (await db.getCalculationsByMonth(month)).find((c) => c.employee_id === id)
+
+  it("qayta hisoblash o'tgan oy shartlarini saqlaydi; «Qayta hisoblash» hozirgilarini qo'llaydi", async () => {
+    const e = await dbEmp('Snapshot Ishchi')
+    await saveMonth('2099-06', [e])
+    await db.updateEmployee(e.id, { monthly_salary: 9000000 })
+    await recalculateMonth('2099-06') // masalan avans o'zgargach
+    expect((await calcOf('2099-06', e.id)).base_salary).toBe(3000000)
+    await recalculateMonth('2099-06', { useCurrent: true })
+    expect((await calcOf('2099-06', e.id)).base_salary).toBe(9000000)
+  })
+
+  it('oyga bitta hisobot: qayta saqlash eskisini almashtiradi', async () => {
+    const e = await dbEmp('Takror Ishchi')
+    await saveMonth('2099-07', [e])
+    await saveMonth('2099-07', [e])
+    expect((await db.listReports()).filter((r) => r.month === '2099-07')).toHaveLength(1)
+  })
+
+  it('qulflangan oy saqlanmaydi', async () => {
+    const e = await dbEmp('Qulf Ishchi')
+    await setMonthLocked('2099-08', true)
+    await expect(saveMonth('2099-08', [e])).rejects.toThrow('qulflangan')
+  })
+
+  it("tarixi bor ishchini o'chirib bo'lmaydi (tarix saqlanadi)", async () => {
+    const e = await dbEmp('Tarix Ishchi')
+    await saveMonth('2099-09', [e])
+    await expect(db.deleteEmployee(e.id)).rejects.toMatchObject({ code: '23503' })
+    expect(await calcOf('2099-09', e.id)).toBeTruthy()
   })
 })

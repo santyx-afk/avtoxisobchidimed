@@ -1,10 +1,23 @@
 // IVMS hisobotini qayta ishlash: parse -> ishchilarni moslashtirish -> hisoblash -> saqlash
 import { parseIvmsHtml, normalizeName } from './ivmsParser'
 import { calcEmployeeSalary } from './salaryCalc'
-import { isMonthLocked } from './monthLock'
+import { isMonthLocked, assertMonthUnlocked } from './monthLock'
 import * as db from './db'
 
 const pidOf = (v) => String(v ?? '').trim()
+
+// Hisob paytidagi shartlar nusxasi (snapshot): keyinroq oylik yoki sozlama o'zgarsa ham
+// o'tgan oy qayta hisoblanganda shu shartlar bilan qoladi
+const TERM_KEYS = [
+  'calc_type', 'monthly_salary', 'hourly_rate', 'daily_rate', 'work_start', 'work_end', 'lunch_minutes',
+  'work_days', 'grace_period_min', 'late_penalty_per_min', 'overtime_multiplier', 'weekend_multiplier',
+]
+const SETTING_KEYS = [
+  'late_penalty_per_min', 'grace_period_min', 'overtime_multiplier', 'weekend_multiplier', 'weekend_days', 'holidays',
+]
+const pick = (obj, keys) => Object.fromEntries(keys.filter((k) => obj?.[k] !== undefined).map((k) => [k, obj[k]]))
+export const employeeTerms = (employee) => pick(employee, TERM_KEYS)
+export const settingsTerms = (settings) => pick(settings, SETTING_KEYS)
 
 /** Oy avanslarini bitta so'rov bilan olib, ishchi bo'yicha guruhlaydi: Map<employee_id, advances[]> */
 export async function loadAdvancesByEmployee(month) {
@@ -17,15 +30,17 @@ export async function loadAdvancesByEmployee(month) {
 }
 
 /**
- * Mavjud oyni qayta hisoblaydi (masalan avans qo'shilgach).
- * Saqlangan attendance yozuvlaridan IVMS record shakliga qaytarib, qayta hisoblaydi.
+ * Mavjud oyni saqlangan attendance yozuvlaridan qayta hisoblaydi.
+ * useCurrent=false (masalan avans o'zgargach) — hisob paytidagi shartlar (snapshot) saqlanadi,
+ * faqat avanslar yangilanadi. useCurrent=true («Qayta hisoblash» tugmasi) — ishchilarning
+ * hozirgi oyligi/jadvali va hozirgi sozlamalar qo'llanadi.
  * @returns {boolean} report topilib qayta hisoblandimi
  */
-export async function recalculateMonth(month) {
+export async function recalculateMonth(month, { useCurrent = false } = {}) {
   if (await isMonthLocked(month)) return false // qulflangan oy — o'zgartirilmaydi
   const report = await db.getReportByMonth(month)
   if (!report) return false
-  const [employees, settings, attendance, existing, advancesByEmployee] = await Promise.all([
+  const [employees, currentSettings, attendance, existing, advancesByEmployee] = await Promise.all([
     db.listEmployees(),
     db.getSettings(),
     db.getAttendanceByReport(report.id),
@@ -45,22 +60,27 @@ export async function recalculateMonth(month) {
       anchored: true,
     })
   }
-  const hadCalc = new Set(existing.map((c) => c.employee_id))
+  const prevByEmp = new Map(existing.map((c) => [c.employee_id, c]))
+  const useSnapshot = !useCurrent && report.settings_snapshot
+  const settings = useSnapshot ? { ...currentSettings, ...report.settings_snapshot } : currentSettings
 
   const summaries = []
   for (const employee of employees) {
+    const prev = prevByEmp.get(employee.id)
     // Faylda yozuvi bor yoki avval hisoblangan (faylda yo'q, "kelmagan") ishchilar
-    if (!byEmp.has(employee.id) && !hadCalc.has(employee.id)) continue
+    if (!byEmp.has(employee.id) && !prev) continue
+    const emp = !useCurrent && prev?.employee_snapshot ? { ...employee, ...prev.employee_snapshot } : employee
     const { summary } = calcEmployeeSalary({
-      employee,
+      employee: emp,
       records: byEmp.get(employee.id) || [],
       settings,
       advances: advancesByEmployee.get(employee.id) || [],
       month,
     })
-    summaries.push({ ...summary, report_id: report.id })
+    summaries.push({ ...summary, employee_snapshot: employeeTerms(emp) })
   }
-  await db.replaceCalculationsForReport(report.id, summaries)
+  // Snapshot yo'q (eski) hisobotga yoki yangi shartlar qo'llanganda — sozlamalar nusxasi yoziladi
+  await db.replaceCalculationsForReport(report.id, summaries, useSnapshot ? null : settingsTerms(settings))
   return true
 }
 
@@ -143,7 +163,7 @@ export function computeReport({ records, month, employees, settings, advancesByE
     const { summary, days } = calcEmployeeSalary({ employee, records: empRecords, settings, advances, month })
     results.push({ employee, summary, hasData: empRecords.length > 0 })
     allDays.push(...days)
-    allSummaries.push(summary)
+    allSummaries.push({ ...summary, employee_snapshot: employeeTerms(employee) })
   }
 
   // Faylda bor, tizimda yo'q (dublikatsiz — birinchi ko'ringan ism)
@@ -178,27 +198,24 @@ export function reportWarnings(parsed, computed) {
   return warnings
 }
 
-/** Hisoblangan natijalarni DB ga saqlaydi (oyiga bitta report) */
-export async function saveReport({ month, fileName, source, allDays, allSummaries }) {
-  const existing = await db.getReportByMonth(month)
-  if (existing) await db.deleteReport(existing.id)
-  const report = await db.createReport({ month, file_name: fileName, source })
-  await db.replaceAttendanceForReport(
-    report.id,
-    allDays.map((d) => ({ ...d, report_id: report.id })),
-  )
-  await db.replaceCalculationsForReport(
-    report.id,
-    allSummaries.map((s) => ({ ...s, report_id: report.id })),
-  )
-  return report
+/** Hisoblangan natijalarni DB ga saqlaydi: oyiga bitta report, bitta tranzaksiyada */
+export async function saveReport({ month, fileName, source, allDays, allSummaries, settings }) {
+  await assertMonthUnlocked(month)
+  return db.saveMonthReport({
+    month,
+    file_name: fileName,
+    source,
+    attendance: allDays,
+    calculations: allSummaries,
+    settings_snapshot: settings ? settingsTerms(settings) : null,
+  })
 }
 
 /**
  * IVMS HTML faylini to'liq qayta ishlaydi va saqlaydi.
  * @returns natija + ogohlantirishlar
  */
-export async function processIvmsFile({ html, fileName, source = 'manual' }) {
+export async function processIvmsFile({ html, fileName, source = 'manual', expectedMonth = null }) {
   const parsed = parseIvmsHtml(html)
   if (!parsed.month) {
     throw new Error("Fayldan oy (sana) aniqlanmadi. IVMS 'Punch Report' formatini tekshiring.")
@@ -206,9 +223,11 @@ export async function processIvmsFile({ html, fileName, source = 'manual' }) {
   if (parsed.records.length === 0) {
     throw new Error("Faylda hech qanday yozuv topilmadi. Format noto'g'ri bo'lishi mumkin.")
   }
-  if (await isMonthLocked(parsed.month)) {
-    throw new Error(`${parsed.month} oyi qulflangan. Avval Sozlamalar/Tarixdan oyni oching.`)
+  // Agent fayli: papka oyi va fayl ichidagi oy bir xil bo'lishi kerak (boshqa oy ustidan yozilmasin)
+  if (expectedMonth && parsed.month !== expectedMonth) {
+    throw new Error(`Fayl ${expectedMonth} papkasida, lekin ichidagi ma'lumot ${parsed.month} oyiga tegishli — o'tkazib yuborildi.`)
   }
+  await assertMonthUnlocked(parsed.month)
 
   const [employees, settings, advancesByEmployee] = await Promise.all([
     db.listEmployees(),
@@ -230,6 +249,7 @@ export async function processIvmsFile({ html, fileName, source = 'manual' }) {
     source,
     allDays: computed.allDays,
     allSummaries: computed.allSummaries,
+    settings,
   })
   await rememberPersonIds(computed.learnedPersonIds)
 

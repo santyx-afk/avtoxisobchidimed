@@ -30,7 +30,7 @@ export const createReport = impl.createReport
 export const deleteReport = impl.deleteReport
 
 export const getAttendanceByReport = impl.getAttendanceByReport
-export const replaceAttendanceForReport = impl.replaceAttendanceForReport
+export const saveMonthReport = impl.saveMonthReport
 
 export const getCalculationsByReport = impl.getCalculationsByReport
 export const getCalculationsByMonth = impl.getCalculationsByMonth

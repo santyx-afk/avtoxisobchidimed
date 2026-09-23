@@ -80,8 +80,8 @@ bo'lishi kerak:
 ### 1. `folder` (tavsiya etiladi — sodda)
 
 IVMS-4200 ni har oy `watch_folder` ga "Punch Report" eksport qiladigan qilib
-sozlang (yoki qo'lda saqlang). Agent shu papkadagi eng yangi (yoki oy nomiga
-mos) faylni oladi va yuklaydi.
+sozlang (yoki qo'lda saqlang). Agent papkadagi fayllar **ichidagi sanalarni**
+tekshirib, kerakli oyga tegishli eng yangi faylni yuklaydi (fayl nomi muhim emas).
 
 ### 2. `isapi` (ilg'or — to'liq avtomatik)
 

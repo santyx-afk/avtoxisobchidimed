@@ -5,7 +5,13 @@ import { DEFAULT_SETTINGS } from './constants'
 const SETTINGS_KEY = 'app'
 
 function check(error) {
-  if (error) throw new Error(error.message || 'Supabase xatosi')
+  if (!error) return
+  // PGRST202 — funksiya topilmadi: bazada sxema yangilanmagan
+  const e = new Error(error.code === 'PGRST202'
+    ? "Bazada yangi funksiya topilmadi — supabase/schema.sql ni qayta ishga tushiring (README)."
+    : error.message || 'Supabase xatosi')
+  e.code = error.code // masalan 23503 — bog'liq yozuvlar bor (tarixi bor ishchini o'chirish)
+  throw e
 }
 
 const PAGE = 1000
@@ -151,16 +157,6 @@ export async function getAttendanceByReport(reportId) {
   return selectAll('attendance_records', (q) => q.eq('report_id', reportId))
 }
 
-export async function replaceAttendanceForReport(reportId, records) {
-  let error
-  ;({ error } = await supabase.from('attendance_records').delete().eq('report_id', reportId))
-  check(error)
-  const rows = records.map((r) => ({ ...r, report_id: reportId }))
-  for (let i = 0; i < rows.length; i += 500) {
-    ;({ error } = await supabase.from('attendance_records').insert(rows.slice(i, i + 500)))
-    check(error)
-  }
-}
 
 // ---------- Salary calculations ----------
 export async function getCalculationsByReport(reportId) {
@@ -173,15 +169,29 @@ export async function getCalculationsByMonth(month) {
   return getCalculationsByReport(report.id)
 }
 
-export async function replaceCalculationsForReport(reportId, records) {
-  let error
-  ;({ error } = await supabase.from('salary_calculations').delete().eq('report_id', reportId))
+// ---------- Saqlash — bitta tranzaksiyada (supabase/schema.sql dagi funksiyalar) ----------
+/** Oy hisobotini to'liq almashtiradi: eski hisobot + yangi davomat + natijalar */
+export async function saveMonthReport({ month, file_name, source, attendance, calculations, settings_snapshot = null }) {
+  const { data, error } = await supabase.rpc('save_month_report', {
+    p_month: month,
+    p_file_name: file_name,
+    p_source: source,
+    p_attendance: attendance,
+    p_calculations: calculations,
+    p_settings_snapshot: settings_snapshot,
+  })
   check(error)
-  const rows = records.map((r) => ({ ...r, report_id: reportId }))
-  for (let i = 0; i < rows.length; i += 500) {
-    ;({ error } = await supabase.from('salary_calculations').insert(rows.slice(i, i + 500)))
-    check(error)
-  }
+  return data
+}
+
+/** Hisobot natijalarini almashtiradi (qayta hisoblash); snapshot berilsa — u ham yangilanadi */
+export async function replaceCalculationsForReport(reportId, records, settingsSnapshot = null) {
+  const { error } = await supabase.rpc('replace_report_calculations', {
+    p_report_id: reportId,
+    p_calculations: records,
+    p_settings_snapshot: settingsSnapshot,
+  })
+  check(error)
 }
 
 export async function getCalculationsForEmployee(employeeId) {

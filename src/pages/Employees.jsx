@@ -34,6 +34,7 @@ export default function Employees() {
   const [deleteTarget, setDeleteTarget] = useState(null)
   const [filter, setFilter] = useState('all')
   const [bulkOpen, setBulkOpen] = useState(false)
+  const [notice, setNotice] = useState('')
 
   async function reload() {
     setEmployees(await db.listEmployees())
@@ -54,8 +55,17 @@ export default function Employees() {
     setModalOpen(true)
   }
   async function confirmDelete() {
-    await db.deleteEmployee(deleteTarget.id)
+    const target = deleteTarget
     setDeleteTarget(null)
+    setNotice('')
+    try {
+      await db.deleteEmployee(target.id)
+    } catch (e) {
+      if (e?.code !== '23503') throw e
+      // Oylik tarixi bor — tarix saqlanishi uchun o'chirilmaydi, nofaol qilinadi
+      await db.updateEmployee(target.id, { is_active: false })
+      setNotice(`"${target.name}" ning oylik tarixi bor — tarix saqlanishi uchun o'chirilmadi, nofaol qilindi.`)
+    }
     reload()
   }
 
@@ -166,6 +176,10 @@ export default function Employees() {
         </button>
       </PageHeader>
 
+      {notice && (
+        <div className="mb-4 rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-700 dark:bg-amber-500/10 dark:text-amber-300">{notice}</div>
+      )}
+
       <DataTable
         columns={columns}
         rows={filtered}
@@ -219,7 +233,7 @@ export default function Employees() {
         onClose={() => setDeleteTarget(null)}
         onConfirm={confirmDelete}
         title="Ishchini o'chirish"
-        message={`"${deleteTarget?.name}" ishchisini o'chirmoqchimisiz? Uning barcha attendance va hisob-kitoblari ham o'chadi.`}
+        message={`"${deleteTarget?.name}" ishchisini o'chirmoqchimisiz? Oylik tarixi bo'lsa, tarix saqlanadi va ishchi faqat nofaol qilinadi.`}
       />
     </div>
   )

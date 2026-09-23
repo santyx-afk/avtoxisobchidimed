@@ -69,7 +69,7 @@ export default function Calculate() {
     setError('')
     setAddedMsg('')
     try {
-      await recalculateMonth(view.month)
+      await recalculateMonth(view.month, { useCurrent: true }) // hozirgi oylik/sozlamalar bilan
       setView(await loadMonthView(view.month))
       setAddedMsg('Oylik qayta hisoblandi.')
     } catch (err) {
@@ -169,6 +169,7 @@ export default function Calculate() {
         source: view.report?.source || 'manual',
         allDays: computed.allDays,
         allSummaries: computed.allSummaries,
+        settings: st,
       })
       await rememberPersonIds(computed.learnedPersonIds)
       setView(buildView({ ...computed, report, month: view.month, warnings: view.warnings }, view.parsedRecords))

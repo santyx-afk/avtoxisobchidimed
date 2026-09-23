@@ -66,7 +66,7 @@ create index if not exists monthly_reports_month_idx on public.monthly_reports (
 -- ---------- Kunlik attendance yozuvlari ----------
 create table if not exists public.attendance_records (
   id               uuid primary key default gen_random_uuid(),
-  employee_id      uuid references public.employees (id) on delete cascade,
+  employee_id      uuid references public.employees (id) on delete restrict,
   report_id        uuid references public.monthly_reports (id) on delete cascade,
   date             date not null,
   day_of_week      text,
@@ -84,7 +84,7 @@ create index if not exists attendance_employee_idx on public.attendance_records 
 -- ---------- Oylik hisob natijalari ----------
 create table if not exists public.salary_calculations (
   id                 uuid primary key default gen_random_uuid(),
-  employee_id        uuid references public.employees (id) on delete cascade,
+  employee_id        uuid references public.employees (id) on delete restrict,
   report_id          uuid references public.monthly_reports (id) on delete cascade,
   work_days          integer default 0,               -- necha kun kelgan
   expected_work_days integer default 0,               -- necha kun kelishi kerak edi
@@ -111,7 +111,7 @@ create index if not exists salary_employee_idx on public.salary_calculations (em
 -- ---------- Avanslar ----------
 create table if not exists public.advances (
   id          uuid primary key default gen_random_uuid(),
-  employee_id uuid references public.employees (id) on delete cascade,
+  employee_id uuid references public.employees (id) on delete restrict,
   amount      integer not null,
   date        date not null default current_date,
   reason      text,
@@ -138,6 +138,47 @@ values ('app', jsonb_build_object(
   'agent', jsonb_build_object('enabled', false, 'run_day', 1, 'run_hour', 10, 'last_run', null, 'last_status', 'idle')
 ))
 on conflict (key) do nothing;
+
+-- ============================================================
+-- Ma'lumotlar yaxlitligi (eski o'rnatishlar uchun ham — idempotent)
+-- ============================================================
+-- Hisob tarixi saqlanadi: tarixi bor ishchini o'chirib bo'lmaydi (faqat nofaol qilinadi)
+alter table public.attendance_records drop constraint if exists attendance_records_employee_id_fkey;
+alter table public.attendance_records add constraint attendance_records_employee_id_fkey
+  foreign key (employee_id) references public.employees (id) on delete restrict;
+alter table public.salary_calculations drop constraint if exists salary_calculations_employee_id_fkey;
+alter table public.salary_calculations add constraint salary_calculations_employee_id_fkey
+  foreign key (employee_id) references public.employees (id) on delete restrict;
+alter table public.advances drop constraint if exists advances_employee_id_fkey;
+alter table public.advances add constraint advances_employee_id_fkey
+  foreign key (employee_id) references public.employees (id) on delete restrict;
+
+-- Hisob paytidagi sozlamalar va ishchi shartlari — keyingi o'zgarishlar o'tgan oyga ta'sir qilmaydi
+alter table public.monthly_reports     add column if not exists settings_snapshot jsonb;
+alter table public.salary_calculations add column if not exists employee_snapshot jsonb;
+
+-- Oyiga bitta hisobot: eski dublikatlardan eng oxirgisi qoladi (ilova ham shuni ko'rsatardi)
+delete from public.monthly_reports r
+ using public.monthly_reports n
+ where r.month = n.month and (r.uploaded_at, r.id) < (n.uploaded_at, n.id);
+create unique index if not exists monthly_reports_month_key on public.monthly_reports (month);
+
+-- Bitta hisobotda ishchiga bitta natija
+delete from public.salary_calculations a
+ using public.salary_calculations b
+ where a.report_id = b.report_id and a.employee_id = b.employee_id and a.id < b.id;
+create unique index if not exists salary_calculations_report_employee_key
+  on public.salary_calculations (report_id, employee_id);
+
+-- Yangi yozuvlar uchun tekshiruvlar (not valid — eski qatorlar tekshirilmaydi)
+alter table public.monthly_reports drop constraint if exists monthly_reports_month_format;
+alter table public.monthly_reports add constraint monthly_reports_month_format
+  check (month ~ '^\d{4}-\d{2}$') not valid;
+alter table public.advances drop constraint if exists advances_month_format;
+alter table public.advances add constraint advances_month_format
+  check (month ~ '^\d{4}-\d{2}$') not valid;
+alter table public.advances drop constraint if exists advances_amount_positive;
+alter table public.advances add constraint advances_amount_positive check (amount > 0) not valid;
 
 -- ============================================================
 -- RLS (Row Level Security) — faqat 'staff' rolidagi foydalanuvchilar
@@ -195,6 +236,98 @@ begin
     execute format('revoke all on table public.%I from anon;', t);
   end loop;
 end $$;
+
+-- ============================================================
+-- Hisobotni saqlash — bitta tranzaksiyada (internet uzilsa ham yarim yozilib qolmaydi)
+-- security invoker: RLS (staff) amal qiladi
+-- ============================================================
+create or replace function public.is_month_locked(p_month text)
+returns boolean
+language sql
+stable
+set search_path = ''
+as $$
+  select coalesce((select (value -> 'locked_months') ? p_month from public.settings where key = 'app'), false)
+$$;
+
+-- Hisobot natijalarini almashtiradi (qayta hisoblash); snapshot berilsa — u ham yangilanadi
+create or replace function public.replace_report_calculations(
+  p_report_id uuid,
+  p_calculations jsonb,
+  p_settings_snapshot jsonb default null
+)
+returns void
+language plpgsql
+set search_path = ''
+as $$
+declare
+  v_month text;
+begin
+  select month into v_month from public.monthly_reports where id = p_report_id;
+  if v_month is null then
+    raise exception 'Hisobot topilmadi';
+  end if;
+  if public.is_month_locked(v_month) then
+    raise exception '% oyi qulflangan', v_month;
+  end if;
+  if p_settings_snapshot is not null then
+    update public.monthly_reports set settings_snapshot = p_settings_snapshot where id = p_report_id;
+  end if;
+  delete from public.salary_calculations where report_id = p_report_id;
+  insert into public.salary_calculations
+    (employee_id, report_id, work_days, expected_work_days, total_hours, regular_hours,
+     overtime_hours, weekend_hours, late_count, total_late_minutes, base_salary,
+     calculated_salary, overtime_pay, weekend_pay, penalties, advance_deduction,
+     net_salary, difference, notes, employee_snapshot)
+  select c.employee_id, p_report_id, c.work_days, c.expected_work_days, c.total_hours, c.regular_hours,
+         c.overtime_hours, c.weekend_hours, c.late_count, c.total_late_minutes, c.base_salary,
+         c.calculated_salary, c.overtime_pay, c.weekend_pay, c.penalties, c.advance_deduction,
+         c.net_salary, c.difference, c.notes, c.employee_snapshot
+  from jsonb_populate_recordset(null::public.salary_calculations, coalesce(p_calculations, '[]'::jsonb)) c;
+end
+$$;
+
+-- Oy hisobotini to'liq almashtiradi: eski hisobot (cascade) + yangi davomat + natijalar
+create or replace function public.save_month_report(
+  p_month text,
+  p_file_name text,
+  p_source text,
+  p_attendance jsonb,
+  p_calculations jsonb,
+  p_settings_snapshot jsonb default null
+)
+returns public.monthly_reports
+language plpgsql
+set search_path = ''
+as $$
+declare
+  r public.monthly_reports;
+begin
+  if public.is_month_locked(p_month) then
+    raise exception '% oyi qulflangan', p_month;
+  end if;
+  delete from public.monthly_reports where month = p_month;
+  insert into public.monthly_reports (month, file_name, source, settings_snapshot)
+  values (p_month, p_file_name, coalesce(p_source, 'manual'), p_settings_snapshot)
+  returning * into r;
+
+  insert into public.attendance_records
+    (employee_id, report_id, date, day_of_week, check_in, check_out,
+     is_weekend, worked_minutes, late_minutes, overtime_minutes)
+  select a.employee_id, r.id, a.date, a.day_of_week, a.check_in, a.check_out,
+         coalesce(a.is_weekend, false), coalesce(a.worked_minutes, 0),
+         coalesce(a.late_minutes, 0), coalesce(a.overtime_minutes, 0)
+  from jsonb_populate_recordset(null::public.attendance_records, coalesce(p_attendance, '[]'::jsonb)) a;
+
+  perform public.replace_report_calculations(r.id, p_calculations);
+  return r;
+end
+$$;
+
+revoke all on function public.replace_report_calculations(uuid, jsonb, jsonb) from public, anon;
+grant execute on function public.replace_report_calculations(uuid, jsonb, jsonb) to authenticated;
+revoke all on function public.save_month_report(text, text, text, jsonb, jsonb, jsonb) from public, anon;
+grant execute on function public.save_month_report(text, text, text, jsonb, jsonb, jsonb) to authenticated;
 
 -- ============================================================
 -- Storage bucket (IVMS agent yuklaydigan fayllar uchun)

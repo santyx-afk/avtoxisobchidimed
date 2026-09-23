@@ -128,12 +128,17 @@ export async function updateEmployeesBulk(updates) {
   return updates.length
 }
 
+// Tarixi bor ishchi o'chirilmaydi (Supabase dagi "on delete restrict" kabi) — nofaol qilinadi
 export async function deleteEmployee(id) {
   const s = load()
+  const hasHistory = [s.attendance_records, s.salary_calculations, s.advances]
+    .some((rows) => rows.some((x) => x.employee_id === id))
+  if (hasHistory) {
+    const err = new Error("Ishchining oylik tarixi bor — o'chirib bo'lmaydi")
+    err.code = '23503'
+    throw err
+  }
   s.employees = s.employees.filter((e) => e.id !== id)
-  s.attendance_records = s.attendance_records.filter((a) => a.employee_id !== id)
-  s.salary_calculations = s.salary_calculations.filter((c) => c.employee_id !== id)
-  s.advances = s.advances.filter((a) => a.employee_id !== id)
   save(s)
 }
 
@@ -204,11 +209,19 @@ export async function getAttendanceByReport(reportId) {
   return s.attendance_records.filter((a) => a.report_id === reportId)
 }
 
-export async function replaceAttendanceForReport(reportId, records) {
+// Oy hisobotini to'liq almashtiradi (bitta saqlash — yarim yozilib qolmaydi)
+export async function saveMonthReport({ month, file_name, source = 'manual', attendance = [], calculations = [], settings_snapshot = null }) {
   const s = load()
-  s.attendance_records = s.attendance_records.filter((a) => a.report_id !== reportId)
-  records.forEach((r) => s.attendance_records.push({ id: uid(), report_id: reportId, ...r }))
+  const oldIds = new Set(s.monthly_reports.filter((r) => r.month === month).map((r) => r.id))
+  s.monthly_reports = s.monthly_reports.filter((r) => !oldIds.has(r.id))
+  s.attendance_records = s.attendance_records.filter((a) => !oldIds.has(a.report_id))
+  s.salary_calculations = s.salary_calculations.filter((c) => !oldIds.has(c.report_id))
+  const report = { id: uid(), month, file_name, source, settings_snapshot, uploaded_at: new Date().toISOString() }
+  s.monthly_reports.push(report)
+  attendance.forEach((a) => s.attendance_records.push({ ...a, id: uid(), report_id: report.id }))
+  calculations.forEach((c) => s.salary_calculations.push({ ...c, id: uid(), report_id: report.id }))
   save(s)
+  return report
 }
 
 // ---------- Salary calculations ----------
@@ -224,8 +237,10 @@ export async function getCalculationsByMonth(month) {
   return s.salary_calculations.filter((c) => c.report_id === report.id)
 }
 
-export async function replaceCalculationsForReport(reportId, records) {
+export async function replaceCalculationsForReport(reportId, records, settingsSnapshot = null) {
   const s = load()
+  const report = s.monthly_reports.find((r) => r.id === reportId)
+  if (report && settingsSnapshot) report.settings_snapshot = settingsSnapshot
   s.salary_calculations = s.salary_calculations.filter((c) => c.report_id !== reportId)
   records.forEach((r) => s.salary_calculations.push({ id: uid(), report_id: reportId, ...r }))
   save(s)

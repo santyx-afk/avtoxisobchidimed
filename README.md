@@ -190,6 +190,13 @@ ID o'zi yoziladi). Oy — fayldagi eng ko'p uchragan oy; boshqa oy yozuvlari his
 **Fix oylik:** `kunlik = oylik / ish_kunlari`; kelgan kunlarga ko'paytiriladi.
 **Soatbay:** ishlagan soatlar × stavka.
 
+**O'tgan oylar o'zgarmaydi:** hisobot saqlanganda sozlamalar va har bir ishchi
+shartlarining nusxasi (snapshot) ham saqlanadi. Keyinroq oylik yoki sozlama
+o'zgarsa (yoki o'sha oyga avans qo'shilsa), oy o'z shartlari bilan qayta
+hisoblanadi. Oyni yangi shartlar bilan hisoblash — «Qayta hisoblash» tugmasi.
+Hisobot bitta tranzaksiyada saqlanadi, oyiga bitta; qulflangan oyga (hisobot,
+avans) o'zgartirish kiritilmaydi; tarixi bor ishchi o'chirilmaydi — nofaol qilinadi.
+
 Natijada har bir ishchi uchun **farq sababi** yoziladi, masalan:
 
 ```

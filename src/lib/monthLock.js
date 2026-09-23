@@ -22,3 +22,10 @@ export async function setMonthLocked(month, locked) {
   await db.updateSettings({ locked_months: next })
   return next
 }
+
+/** Qulflangan oyni o'zgartirishga urinishda xato beradi */
+export async function assertMonthUnlocked(month) {
+  if (await isMonthLocked(month)) {
+    throw new Error(`${month} oyi qulflangan (yopilgan). O'zgartirish uchun avval «Oylik hisoblash» sahifasida oyni oching.`)
+  }
+}
