@@ -2,7 +2,7 @@
 
 Klinika kompyuteriga o'rnatiladigan Python skript. Har oyning belgilangan
 kunida (default — 1-sana, soat 10:00) oldingi oy IVMS "Punch Report" faylini
-oladi va **Supabase Storage** ga yuklaydi. Sayt ochilганда faylni avtomatik
+oladi va **Supabase Storage** ga yuklaydi. Sayt ochilganda faylni avtomatik
 ko'rib, oylikni hisoblaydi.
 
 ## 📋 Talablar

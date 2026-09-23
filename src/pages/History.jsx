@@ -27,12 +27,14 @@ export default function History() {
   useEffect(() => {
     ;(async () => {
       try {
-        const reports = await db.listReports()
-        const withAgg = []
-        for (const r of reports) {
-          const calcs = await db.getCalculationsByReport(r.id)
-          withAgg.push({ report: r, month: r.month, agg: monthSummary(calcs.map((c) => ({ summary: c }))) })
+        // Barcha oylar natijalari bitta so'rov bilan (har oy uchun alohida so'rov emas)
+        const [reports, calcs] = await Promise.all([db.listReports(), db.listCalculationTotals()])
+        const byReport = new Map()
+        for (const c of calcs) {
+          if (!byReport.has(c.report_id)) byReport.set(c.report_id, [])
+          byReport.get(c.report_id).push({ summary: c })
         }
+        const withAgg = reports.map((r) => ({ report: r, month: r.month, agg: monthSummary(byReport.get(r.id) || []) }))
         withAgg.sort((a, b) => (a.month < b.month ? 1 : -1))
         setMonths(withAgg)
         if (withAgg[0]) {
@@ -51,7 +53,7 @@ export default function History() {
   const trend = useMemo(
     () =>
       [...months].reverse().map((m) => ({
-        month: formatMonth(m.month).split(' ')[0],
+        month: formatMonth(m.month), // yil bilan — bir necha yillik tarixda oylar adashmasin
         Belgilangan: Math.round(m.agg.baseFund),
         Net: Math.round(m.agg.fund),
       })),

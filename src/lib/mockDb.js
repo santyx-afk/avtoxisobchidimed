@@ -246,6 +246,10 @@ export async function replaceCalculationsForReport(reportId, records, settingsSn
   save(s)
 }
 
+export async function listCalculationTotals() {
+  return [...load().salary_calculations]
+}
+
 export async function getCalculationsForEmployee(employeeId) {
   const s = load()
   const byReport = new Map(s.monthly_reports.map((r) => [r.id, r]))

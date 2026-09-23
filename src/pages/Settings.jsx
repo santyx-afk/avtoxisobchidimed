@@ -3,7 +3,7 @@ import {
   Save, RotateCcw, Sliders, CalendarDays, Server, Database, FlaskConical,
   CheckCircle2, Loader2, AlertTriangle, PartyPopper, Plus, X,
 } from 'lucide-react'
-import { PageHeader, PageLoader, Field, Toggle, ConfirmDialog } from '../components/ui'
+import { PageHeader, PageLoader, Field, ConfirmDialog } from '../components/ui'
 import { WEEKDAY_NAMES_UZ, formatDate, formatDateTime } from '../lib/format'
 import { DEFAULT_SETTINGS } from '../lib/constants'
 import { IS_DEMO } from '../lib/db'
@@ -18,7 +18,6 @@ export default function Settings() {
   const [resetOpen, setResetOpen] = useState(false)
   const [holidayInput, setHolidayInput] = useState('')
   const set = (k, v) => { setForm((f) => ({ ...f, [k]: v })); setSaved(false) }
-  const setAgent = (k, v) => { setForm((f) => ({ ...f, agent: { ...f.agent, [k]: v } })); setSaved(false) }
 
   useEffect(() => {
     ;(async () => {
@@ -59,7 +58,6 @@ export default function Settings() {
       weekend_multiplier: Number(form.weekend_multiplier) || 1,
       weekend_days: form.weekend_days,
       holidays: form.holidays || [],
-      agent: form.agent,
       })
       setSaved(true)
     } finally {
@@ -187,21 +185,11 @@ export default function Settings() {
             <Server className="h-5 w-5 text-brand-500" />
             <h3 className="font-semibold text-slate-800 dark:text-slate-100">IVMS Agent</h3>
           </div>
-          <div className="mb-4 flex items-center justify-between rounded-xl bg-slate-50 px-4 py-3 dark:bg-slate-800/50">
-            <div>
-              <p className="text-sm font-medium text-slate-700 dark:text-slate-200">Avtomatik yuklash</p>
-              <p className="text-xs text-slate-400">Agent klinikadagi kompyuterda ishlaydi</p>
-            </div>
-            <Toggle checked={form.agent.enabled} onChange={(v) => setAgent('enabled', v)} />
-          </div>
-          <div className="grid grid-cols-2 gap-4">
-            <Field label="Export kuni" hint="oyning kuni (1-28)">
-              <input type="number" min="1" max="28" className="input tabular" value={form.agent.run_day} onChange={(e) => setAgent('run_day', Number(e.target.value))} />
-            </Field>
-            <Field label="Soat" hint="0-23">
-              <input type="number" min="0" max="23" className="input tabular" value={form.agent.run_hour} onChange={(e) => setAgent('run_hour', Number(e.target.value))} />
-            </Field>
-          </div>
+          <p className="rounded-xl bg-slate-50 px-4 py-3 text-sm text-slate-500 dark:bg-slate-800/50 dark:text-slate-400">
+            Agent klinika kompyuterida ishlaydi. Qaysi kun va soatda yuklashi o'sha kompyuterdagi
+            <code className="mx-1 rounded bg-slate-200 px-1 dark:bg-slate-700">config.json</code> da sozlanadi
+            (agent/README.md). Pastda — sayt agent fayllarini oxirgi marta qayta ishlagandagi holat.
+          </p>
           <div className="mt-4 space-y-2 border-t border-slate-100 pt-3 text-sm dark:border-slate-800">
             <div className="flex justify-between">
               <span className="text-slate-500 dark:text-slate-400">Oxirgi yuklash</span>

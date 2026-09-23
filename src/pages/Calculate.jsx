@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
-  Upload, FileSpreadsheet, Wallet, Timer, AlertTriangle, Eye, Server,
+  Upload, FileSpreadsheet, Wallet, Timer, AlertTriangle, Eye,
   UserX, FileWarning, CheckCircle2, Loader2, Calculator, UserPlus, RefreshCw, Lock, LockOpen,
 } from 'lucide-react'
 import { PageHeader, StatCard, EmptyState, PageLoader } from '../components/ui'
 import DataTable from '../components/DataTable'
 import SalaryDetail from '../components/SalaryDetail'
-import { formatSom, formatSigned, formatMonth, formatDateTime, minutesToHours } from '../lib/format'
+import { formatSom, formatSigned, formatMonth, formatDateTime } from '../lib/format'
 import { CALC_TYPE_LABEL, REPORT_SOURCE_LABEL } from '../lib/constants'
 import {
   processIvmsFile, computeReport, saveReport, recalculateMonth, loadAdvancesByEmployee, rememberPersonIds,
@@ -34,7 +34,6 @@ export default function Calculate() {
   const [error, setError] = useState('')
   const [dragOver, setDragOver] = useState(false)
   const [detail, setDetail] = useState(null)
-  const [settings, setSettings] = useState(null)
   const [addingAll, setAddingAll] = useState(false)
   const [addedMsg, setAddedMsg] = useState('')
   const [recalcing, setRecalcing] = useState(false)
@@ -72,9 +71,7 @@ export default function Calculate() {
   }
 
   async function refresh(month) {
-    const [reps, st] = await Promise.all([db.listReports(), db.getSettings()])
-    setReports(reps)
-    setSettings(st)
+    setReports(await db.listReports())
     setView(await loadMonthView(month))
   }
 
@@ -218,7 +215,7 @@ export default function Calculate() {
     { key: 'late', header: 'Kech', align: 'center', sortValue: (r) => r.summary.total_late_minutes,
       render: (r) => r.summary.late_count > 0 ? <span className="badge-amber">{r.summary.late_count} kun</span> : <span className="text-slate-300">—</span> },
     { key: 'actions', header: '', sortable: false, align: 'right',
-      render: (r) => <button className="btn-ghost p-1.5" title="Tafsilot"><Eye className="h-4 w-4" /></button> },
+      render: () => <button className="btn-ghost p-1.5" title="Tafsilot"><Eye className="h-4 w-4" /></button> },
   ]
 
   return (

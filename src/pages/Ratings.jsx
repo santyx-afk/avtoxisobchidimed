@@ -40,6 +40,7 @@ export default function Ratings() {
       hours: r.summary.total_hours || 0,
       lateMin: r.summary.total_late_minutes || 0,
       lateCount: r.summary.late_count || 0,
+      days: r.summary.work_days || 0,
       net: r.summary.net_salary || 0,
     }))
     const byHoursDesc = [...items].sort((a, b) => b.hours - a.hours)
@@ -49,7 +50,8 @@ export default function Ratings() {
       topHours: byHoursDesc.slice(0, 10),
       bottomHours: [...byHoursDesc].reverse().slice(0, 10),
       mostLate: byLateDesc.filter((x) => x.lateMin > 0).slice(0, 10),
-      ideal: [...items].sort((a, b) => a.lateMin - b.lateMin).slice(0, 10),
+      // umuman kelmaganlar "ideal" emas
+      ideal: items.filter((x) => x.days > 0).sort((a, b) => a.lateMin - b.lateMin).slice(0, 10),
       topNet: byNetDesc.slice(0, 10),
       bottomNet: [...byNetDesc].reverse().slice(0, 10),
     }

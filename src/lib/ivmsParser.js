@@ -18,7 +18,7 @@ function extractRows(html) {
   const rows = Array.from(doc.querySelectorAll('tr'))
   return rows.map((tr) =>
     Array.from(tr.querySelectorAll('td, th')).map((c) =>
-      (c.textContent || '').replace(/ /g, ' ').trim(),
+      (c.textContent || '').replace(/\u00A0/g, ' ').trim(),
     ),
   )
 }

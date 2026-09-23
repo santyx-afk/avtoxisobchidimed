@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Plus, Pencil, Trash2, Users, Clock, Building2, AlertCircle, ChevronDown, ClipboardPaste, CheckCircle2 } from 'lucide-react'
+import { Plus, Pencil, Trash2, AlertCircle, ChevronDown, ClipboardPaste, CheckCircle2 } from 'lucide-react'
 import { PageHeader, PageLoader, Modal, ConfirmDialog, Field, MoneyInput, Toggle } from '../components/ui'
 import DataTable from '../components/DataTable'
 import { formatSom, shortTime, WEEKDAY_SHORT_UZ } from '../lib/format'
@@ -359,7 +359,7 @@ function EmployeeForm({ employee, onClose, onSaved }) {
           </Field>
         )}
         {form.calc_type === 'daily' && (
-          <Field label="Kunlik summa (so'm/kun)" hint="Kelgan kunlarга ko'paytiriladi" required>
+          <Field label="Kunlik summa (so'm/kun)" hint="Kelgan kunlarga ko'paytiriladi" required>
             <MoneyInput value={form.daily_rate} onChange={(v) => set('daily_rate', v)} placeholder="150,000" />
           </Field>
         )}
@@ -487,6 +487,7 @@ function BulkSalaryModal({ employees, onClose, onSaved }) {
   const [text, setText] = useState('')
   const [busy, setBusy] = useState(false)
   const [done, setDone] = useState(0)
+  const [error, setError] = useState('')
 
   const rows = parseBulkSalary(text)
   const { matched, unmatched, invalid } = matchBulkSalary(rows, employees)
@@ -494,11 +495,13 @@ function BulkSalaryModal({ employees, onClose, onSaved }) {
   async function apply() {
     if (!matched.length) return
     setBusy(true)
+    setError('')
     try {
       await db.updateEmployeesBulk(matched.map((m) => ({ id: m.id, patch: m.patch })))
       setDone(matched.length)
       setTimeout(onSaved, 900)
     } catch (e) {
+      setError(e.message || "Saqlashda xatolik — qaytadan urinib ko'ring")
       setBusy(false)
     }
   }
@@ -567,6 +570,10 @@ function BulkSalaryModal({ employees, onClose, onSaved }) {
               {unmatched.slice(0, 20).map((r, i) => <span key={i} className="badge-amber">{r.name}</span>)}
             </div>
           </div>
+        )}
+
+        {error && (
+          <div className="rounded-xl bg-red-50 px-3 py-2 text-sm text-red-600 dark:bg-red-500/10 dark:text-red-300">{error}</div>
         )}
 
         {done > 0 ? (

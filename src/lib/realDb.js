@@ -21,10 +21,10 @@ const PAGE = 1000
  * "Max rows" (standart 1000) qator qaytaradi — busiz ~33+ ishchida davomat jimgina kesilib,
  * qayta hisoblashda yetishmagan kunlar "kelmagan" deb oylikdan ushlanardi.
  */
-async function selectAll(table, build = (q) => q) {
+async function selectAll(table, build = (q) => q, columns = '*') {
   const out = []
   for (;;) {
-    const { data, count, error } = await build(supabase.from(table).select('*', { count: 'exact' }))
+    const { data, count, error } = await build(supabase.from(table).select(columns, { count: 'exact' }))
       .order('id')
       .range(out.length, out.length + PAGE - 1)
     check(error)
@@ -192,6 +192,12 @@ export async function replaceCalculationsForReport(reportId, records, settingsSn
     p_settings_snapshot: settingsSnapshot,
   })
   check(error)
+}
+
+/** Barcha hisobotlar natijalari (tarix grafigi uchun — faqat yig'indiga kerakli ustunlar) */
+export async function listCalculationTotals() {
+  return selectAll('salary_calculations', (q) => q,
+    'id,report_id,net_salary,base_salary,late_count,total_late_minutes,overtime_hours,total_hours,advance_deduction,difference')
 }
 
 export async function getCalculationsForEmployee(employeeId) {

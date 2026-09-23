@@ -216,7 +216,7 @@ Belgilangan: 6,000,000 | Hisoblangan: 4,881,221 | Farq: −1,118,779
 ## 🤖 IVMS Agent (avtomatik yuklash)
 
 Klinika kompyuteriga o'rnatiladigan Python skript. Har oyning belgilangan
-kunida oldingi oy reportini Supabase Storage ga yuklaydi; sayt ochilганda
+kunida oldingi oy reportini Supabase Storage ga yuklaydi; sayt ochilganda
 faylni avtomatik ko'rib hisoblaydi.
 
 To'liq qo'llanma: [`agent/README.md`](agent/README.md)
@@ -240,6 +240,8 @@ python ivms_agent.py --now    # darhol sinash
 │   │   ├── runCalculation.js  # parse -> moslashtirish -> saqlash
 │   │   ├── db.js              # ma'lumot qatlami (Supabase | DEMO)
 │   │   ├── excel.js           # Excel export
+│   │   ├── readReportFile.js  # IVMS fayl o'qish (HTML-xls, UTF-16/1251, xlsx)
+│   │   ├── authRole.js        # Supabase Auth rol tekshiruvi (staff)
 │   │   └── agentStorage.js    # agent fayllarini avtomatik sync
 │   ├── components/            # UI (DataTable, Modal, SalaryDetail, ...)
 │   └── pages/                 # Dashboard, Employees, Calculate, ...
@@ -251,18 +253,19 @@ python ivms_agent.py --now    # darhol sinash
 
 ---
 
-## 🧪 Testlar
+## 🧪 Testlar va CI
 
-Parser va hisoblash mantig'i uchun unit testlar (Vitest):
+Unit testlar (Vitest): hisoblash (kechikish, overtime, tungi smena, bayram, snapshot),
+IVMS parser va fayl o'qish (UTF-8/16, 1251, xlsx), ishchilarni moslash, saqlash/qayta
+hisoblash, rollar va Supabase sahifalash.
 
 ```bash
-npm test
+npm test       # testlar
+npm run lint   # ESLint
 ```
 
-```
-✓ src/lib/ivmsParser.test.js  (9 tests)
-✓ src/lib/salaryCalc.test.js  (10 tests)
-```
+GitHub Actions (`.github/workflows/ci.yml`) har push va PR da lint, test, build va
+agent sintaksisini tekshiradi.
 
 ---
 
@@ -274,3 +277,4 @@ npm test
 | `npm run build` | Production build |
 | `npm run preview` | Build ni ko'rish |
 | `npm test` | Testlar |
+| `npm run lint` | ESLint |

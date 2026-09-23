@@ -41,6 +41,7 @@ export default function Advances() {
         await reloadAdvances(preferred)
       } catch (e) { console.error('Avanslarni yuklashda xatolik:', e) } finally { setLoading(false) }
     })()
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- faqat sahifa ochilganda
   }, [])
 
   async function afterChange(m) {
@@ -152,7 +153,8 @@ export default function Advances() {
 }
 
 function AdvanceForm({ employees, defaultMonth, onClose, onSaved }) {
-  const today = new Date().toISOString().slice(0, 10)
+  // Mahalliy sana (toISOString UTC beradi — Toshkentda 00:00–05:00 da kechagi kun bo'lardi)
+  const today = `${currentMonth()}-${String(new Date().getDate()).padStart(2, '0')}`
   const defaultDate = defaultMonth === currentMonth() ? today : `${defaultMonth}-15`
   const [form, setForm] = useState({ employee_id: employees[0]?.id || '', amount: '', date: defaultDate, reason: '' })
   const [error, setError] = useState('')

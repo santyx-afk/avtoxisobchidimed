@@ -4,7 +4,7 @@ Dimed Salary — IVMS Agent
 =========================
 Klinika kompyuterida ishlaydigan agent. Har oyning belgilangan kunida
 (default 1-sana) oldingi oy IVMS "Punch Report" faylini oladi va Supabase
-Storage ga yuklaydi. Sayt ochilганda faylni avtomatik ko'rib, oylikni hisoblaydi.
+Storage ga yuklaydi. Sayt ochilganda faylni avtomatik ko'rib, oylikni hisoblaydi.
 
 2 ta rejim:
   * folder  — IVMS-4200 export qilgan papkadan eng yangi faylni oladi (default)
