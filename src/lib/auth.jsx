@@ -1,32 +1,41 @@
 import { createContext, useContext, useEffect, useState } from 'react'
 import { parseUsers, SUPABASE_AUTH } from './config'
 import { supabase } from './supabase'
+import { staffUserFromSession, NO_ACCESS_MESSAGE } from './authRole'
 
 const AuthContext = createContext(null)
 const SESSION_KEY = 'dimed-session'
 
-// Supabase Auth faqat yoqilgan VA klient mavjud bo'lsa ishlatiladi
+// Real DB (Supabase) bilan — faqat Supabase Auth; DEMO rejimda — nickname+parol
 const useSupabaseAuth = SUPABASE_AUTH && supabase
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null)
   const [loading, setLoading] = useState(true)
+  const [authError, setAuthError] = useState('')
 
   useEffect(() => {
     if (useSupabaseAuth) {
       // --- Supabase Auth rejimi ---
+      // Sessiya bor, lekin 'staff' roli yo'q (agent yoki ruxsatsiz hisob) — tizimdan chiqaramiz.
+      // signOut callback ichida to'g'ridan-to'g'ri chaqirilmaydi (supabase-js lock), shuning uchun setTimeout.
+      const apply = (session) => {
+        const u = staffUserFromSession(session)
+        if (session && !u) {
+          setAuthError(NO_ACCESS_MESSAGE)
+          setTimeout(() => supabase.auth.signOut().catch(() => {}), 0)
+        }
+        setUser(u)
+      }
       supabase.auth.getSession().then(({ data }) => {
-        const s = data?.session
-        setUser(s ? { nickname: s.user.email, id: s.user.id } : null)
+        apply(data?.session)
         setLoading(false)
       }).catch(() => setLoading(false))
-      const { data: sub } = supabase.auth.onAuthStateChange((_e, session) => {
-        setUser(session ? { nickname: session.user.email, id: session.user.id } : null)
-      })
+      const { data: sub } = supabase.auth.onAuthStateChange((_e, session) => apply(session))
       return () => sub?.subscription?.unsubscribe?.()
     }
 
-    // --- Custom login rejimi (o'zgarmagan) ---
+    // --- DEMO rejim: nickname+parol (ma'lumotlar shu brauzerda) ---
     try {
       const raw = localStorage.getItem(SESSION_KEY)
       if (raw) {
@@ -43,16 +52,21 @@ export function AuthProvider({ children }) {
    * @returns {Promise<{ok: boolean, error?: string}>}
    */
   async function login(identifier, password) {
+    setAuthError('')
     if (useSupabaseAuth) {
-      const { error } = await supabase.auth.signInWithPassword({
+      const { data, error } = await supabase.auth.signInWithPassword({
         email: String(identifier).trim(),
         password,
       })
       if (error) return { ok: false, error: 'Email yoki parol xato' }
+      if (!staffUserFromSession(data?.session)) {
+        await supabase.auth.signOut().catch(() => {})
+        return { ok: false, error: NO_ACCESS_MESSAGE }
+      }
       return { ok: true }
     }
 
-    // Custom login (o'zgarmagan)
+    // DEMO login
     const users = parseUsers()
     const found = users.find(
       (u) => u.nickname === String(identifier).trim() && u.password === String(password),
@@ -85,7 +99,7 @@ export function AuthProvider({ children }) {
   }
 
   return (
-    <AuthContext.Provider value={{ user, login, logout, loading }}>
+    <AuthContext.Provider value={{ user, login, logout, loading, authError }}>
       {children}
     </AuthContext.Provider>
   )

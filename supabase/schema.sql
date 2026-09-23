@@ -134,12 +134,35 @@ values ('app', jsonb_build_object(
 on conflict (key) do nothing;
 
 -- ============================================================
--- RLS (Row Level Security)
--- Ilova custom login (nickname+parol) ishlatadi, Supabase Auth emas.
--- Shu sabab anon kalit orqali kirish uchun ochiq siyosat qo'yiladi.
--- Bu ichki (klinika) vosita — kalitni maxfiy saqlang.
--- Ko'proq xavfsizlik kerak bo'lsa, Supabase Auth ga o'tkazish tavsiya etiladi.
+-- RLS (Row Level Security) — faqat 'staff' rolidagi foydalanuvchilar
+-- ------------------------------------------------------------
+-- Ilova Supabase Auth (email+parol) bilan ishlaydi. Rol JWT dagi
+-- app_metadata.role dan olinadi — uni faqat administrator (SQL / servis kalit)
+-- o'zgartira oladi, foydalanuvchi o'zi emas. Shuning uchun kimdir ro'yxatdan
+-- o'tib olsa ham (sign up), 'staff' roli bo'lmasa hech narsani ko'rmaydi.
+--   'staff' — ilova foydalanuvchilari (admin, buxgalter, direktor): to'liq ruxsat
+--   'agent' — IVMS agent: faqat ivms-reports bucketiga fayl yuklaydi
+--
+-- Rol berish (SQL Editor). Rol berilgandan keyin foydalanuvchi qayta kirishi kerak:
+--   update auth.users
+--      set raw_app_meta_data = coalesce(raw_app_meta_data, '{}'::jsonb) || '{"role":"staff"}'::jsonb
+--    where email in ('admin@dimed.uz', 'buxgalter@dimed.uz', 'direktor@dimed.uz');
+--   update auth.users
+--      set raw_app_meta_data = coalesce(raw_app_meta_data, '{}'::jsonb) || '{"role":"agent"}'::jsonb
+--    where email = 'agent@dimed.uz';
+--
+-- Fayl qayta ishga tushirilsa ham xavfsiz (idempotent): eski ochiq "allow_all"
+-- siyosatlari o'chiriladi, anon (kalitsiz/login'siz) kirish yopiladi.
 -- ============================================================
+create or replace function public.app_role()
+returns text
+language sql
+stable
+set search_path = ''
+as $$
+  select coalesce(auth.jwt() -> 'app_metadata' ->> 'role', '')
+$$;
+
 alter table public.employees            enable row level security;
 alter table public.monthly_reports      enable row level security;
 alter table public.attendance_records   enable row level security;
@@ -155,32 +178,17 @@ begin
   ]
   loop
     execute format('drop policy if exists "allow_all" on public.%I;', t);
-    execute format('create policy "allow_all" on public.%I for all using (true) with check (true);', t);
+    execute format('drop policy if exists "auth_all" on public.%I;', t);
+    execute format('drop policy if exists "staff_all" on public.%I;', t);
+    execute format(
+      'create policy "staff_all" on public.%I for all to authenticated '
+      || 'using ((select public.app_role()) = ''staff'') '
+      || 'with check ((select public.app_role()) = ''staff'');',
+      t
+    );
+    execute format('revoke all on table public.%I from anon;', t);
   end loop;
 end $$;
-
--- ------------------------------------------------------------
--- XAVFSIZROQ VARIANT (ixtiyoriy): Supabase Auth (VITE_SUPABASE_AUTH=true)
--- ------------------------------------------------------------
--- Supabase Auth yoqilганда anon o'rniga faqat tizimga kirgan (authenticated)
--- foydalanuvchilarga ruxsat berish tavsiya etiladi. Buning uchun:
---   1) Supabase -> Authentication da foydalanuvchilar yarating (email+parol).
---   2) .env da VITE_SUPABASE_AUTH=true qiling.
---   3) Yuqoridagi "allow_all" siyosatlarni o'chirib, quyidagini yoqing:
---
--- do $$
--- declare t text;
--- begin
---   foreach t in array array[
---     'employees','monthly_reports','attendance_records','salary_calculations','advances','settings'
---   ]
---   loop
---     execute format('drop policy if exists "allow_all" on public.%I;', t);
---     execute format('create policy "auth_all" on public.%I for all to authenticated using (true) with check (true);', t);
---   end loop;
--- end $$;
---
--- Storage uchun ham xuddi shunday: "for all to authenticated".
 
 -- ============================================================
 -- Storage bucket (IVMS agent yuklaydigan fayllar uchun)
@@ -190,5 +198,21 @@ values ('ivms-reports', 'ivms-reports', false)
 on conflict (id) do nothing;
 
 drop policy if exists "ivms_all" on storage.objects;
-create policy "ivms_all" on storage.objects
-  for all using (bucket_id = 'ivms-reports') with check (bucket_id = 'ivms-reports');
+drop policy if exists "ivms_staff" on storage.objects;
+drop policy if exists "ivms_agent_insert" on storage.objects;
+drop policy if exists "ivms_agent_select" on storage.objects;
+drop policy if exists "ivms_agent_update" on storage.objects;
+
+-- Ilova (staff): o'qish, yuklash, o'chirish
+create policy "ivms_staff" on storage.objects for all to authenticated
+  using (bucket_id = 'ivms-reports' and (select public.app_role()) = 'staff')
+  with check (bucket_id = 'ivms-reports' and (select public.app_role()) = 'staff');
+
+-- Agent: faqat shu bucketga yuklaydi (x-upsert uchun select+update ham kerak), o'chira olmaydi
+create policy "ivms_agent_insert" on storage.objects for insert to authenticated
+  with check (bucket_id = 'ivms-reports' and (select public.app_role()) = 'agent');
+create policy "ivms_agent_select" on storage.objects for select to authenticated
+  using (bucket_id = 'ivms-reports' and (select public.app_role()) = 'agent');
+create policy "ivms_agent_update" on storage.objects for update to authenticated
+  using (bucket_id = 'ivms-reports' and (select public.app_role()) = 'agent')
+  with check (bucket_id = 'ivms-reports' and (select public.app_role()) = 'agent');

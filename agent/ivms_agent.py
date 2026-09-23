@@ -225,16 +225,54 @@ def build_ivms_html(month, people):
 
 
 # ------------------------------------------------------------------- upload
+def auth_headers(cfg):
+    """Supabase so'rovlari uchun sarlavhalar.
+
+    Tavsiya etilgan: 'agent' rolidagi alohida foydalanuvchi (agent_email/agent_password
+    + supabase_anon_key) — u faqat ivms-reports bucketiga yuklay oladi.
+    Eski config.json dagi supabase_service_key ham ishlaydi, lekin u butun bazaga
+    to'liq (admin) ruxsat beradi — kompyuter buzilsa, hamma ma'lumot xavf ostida.
+    """
+    base = cfg["supabase_url"].rstrip("/")
+    anon = cfg.get("supabase_anon_key")
+    email = cfg.get("agent_email")
+    password = cfg.get("agent_password")
+    if anon and email and password:
+        try:
+            r = requests.post(
+                f"{base}/auth/v1/token?grant_type=password",
+                headers={"apikey": anon, "Content-Type": "application/json"},
+                json={"email": email, "password": password},
+                timeout=30,
+            )
+        except Exception as e:
+            log.error("Agent login xato: %s", e)
+            return None
+        if r.status_code != 200:
+            log.error("Agent login xato (%d): %s", r.status_code, r.text[:300])
+            return None
+        return {"Authorization": f"Bearer {r.json()['access_token']}", "apikey": anon}
+
+    key = cfg.get("supabase_service_key")
+    if key:
+        log.warning("service_role kalit ishlatilmoqda — xavfsizroq usul: agent_email/agent_password (agent/README.md)")
+        return {"Authorization": f"Bearer {key}", "apikey": key}
+
+    log.error("config.json: supabase_anon_key + agent_email + agent_password kerak (agent/README.md)")
+    return None
+
+
 def upload_to_supabase(cfg, month, filename, content):
     """Faylni Supabase Storage ga yuklaydi: {bucket}/{month}/{filename}"""
     base = cfg["supabase_url"].rstrip("/")
     bucket = cfg.get("bucket", "ivms-reports")
-    key = cfg["supabase_service_key"]
+    auth = auth_headers(cfg)
+    if not auth:
+        return False
     object_path = f"{month}/{filename}"
     url = f"{base}/storage/v1/object/{bucket}/{object_path}"
     headers = {
-        "Authorization": f"Bearer {key}",
-        "apikey": key,
+        **auth,
         "x-upsert": "true",
         "Content-Type": "application/vnd.ms-excel",
     }

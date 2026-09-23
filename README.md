@@ -11,7 +11,7 @@ oylik farqini batafsil sabablari bilan** ko'rsatadi.
 
 ## ✨ Imkoniyatlar
 
-- 🔐 **Custom login** — nickname + parol (`.env` da 3 ta foydalanuvchi)
+- 🔐 **Xavfsiz kirish** — Supabase Auth (email + parol) va rollar (RLS); DEMO rejimda oddiy login
 - 📊 **Dashboard** — oylik statistika, ogohlantirishlar, agent statusi, mini reyting
 - 👥 **Ishchilar CRUD** — fix oylik yoki soatbay, individual ish vaqti va tushlik
 - 📥 **IVMS parser** — Hikvision "Punch Report" (HTML-xls) ni o'qiydi, bitta
@@ -53,7 +53,7 @@ oylik farqini batafsil sabablari bilan** ko'rsatadi.
 | DB / Backend | Supabase (free tier) |
 | Grafik | Recharts |
 | Excel | SheetJS (xlsx) |
-| Auth | Custom (nickname + parol, `.env`) |
+| Auth | Supabase Auth + RLS rollari (`staff`, `agent`); DEMO: nickname + parol |
 | Deploy | Netlify |
 | Agent | Python 3 |
 
@@ -83,12 +83,23 @@ parser va hisoblashni sinab ko'ring.
 
 1. [supabase.com](https://supabase.com) da bepul loyiha yarating.
 2. **SQL Editor** da `supabase/schema.sql` faylini ishga tushiring (jadvallar,
-   RLS, storage bucket avtomatik yaratiladi).
-3. **Settings → API** dan `Project URL` va `anon public` kalitni oling.
-4. `.env` faylini yarating (`.env.example` dan nusxa oling):
+   RLS, storage bucket avtomatik yaratiladi). Fayl qayta ishga tushirilsa ham xavfsiz.
+3. **Authentication → Users → Add user** — har bir xodim uchun email + parol
+   ("Auto Confirm User" belgilangan).
+4. **SQL Editor** da ularga `staff` rolini bering:
+
+```sql
+update auth.users
+   set raw_app_meta_data = coalesce(raw_app_meta_data, '{}'::jsonb) || '{"role":"staff"}'::jsonb
+ where email in ('admin@dimed.uz', 'buxgalter@dimed.uz', 'direktor@dimed.uz');
+```
+
+5. **Authentication → Sign In / Providers** da "Allow new users to sign up" ni
+   o'chiring (qo'shimcha himoya).
+6. **Settings → API** dan `Project URL` va `anon public` kalitni oling.
+7. `.env` faylini yarating (`.env.example` dan nusxa oling):
 
 ```env
-VITE_USERS=admin:parol1,buxgalter:parol2,direktor:parol3
 VITE_SUPABASE_URL=https://xxxx.supabase.co
 VITE_SUPABASE_ANON_KEY=eyJhbGci...
 VITE_IVMS_BUCKET=ivms-reports
@@ -98,25 +109,31 @@ VITE_IVMS_BUCKET=ivms-reports
 
 ## 🔒 Xavfsizlik
 
-Ilova **ikki xil login** rejimini qo'llab-quvvatlaydi:
+- Supabase ulangan bo'lsa, kirish **faqat Supabase Auth** (email + parol) orqali.
+  Parollar frontend bundle'ga tushmaydi, sessiya brauzerda saqlanadi.
+- Ma'lumotlarni **RLS** himoya qiladi: jadvallar va IVMS fayllarini faqat
+  `staff` rolidagi foydalanuvchi ko'radi. Rol `app_metadata` da turadi — uni
+  faqat administrator SQL orqali beradi, foydalanuvchi o'zi o'zgartira olmaydi.
+  Shuning uchun `anon` kalit (u baribir ochiq) bilan ham, ro'yxatdan o'tib olgan
+  begona hisob bilan ham ma'lumotni ko'rib bo'lmaydi.
+- IVMS agent `agent` rolidagi alohida foydalanuvchi bilan ishlaydi — faqat
+  fayl yuklay oladi ([`agent/README.md`](agent/README.md)).
+- DEMO rejimda (Supabase sozlanmagan) oddiy nickname + parol login ishlaydi —
+  ma'lumotlar faqat shu brauzerda saqlanadi.
 
-**1. Custom login (default)** — nickname + parol, `.env` (`VITE_USERS`).
-> ⚠️ Bu parollar frontend build ichiga tushadi — texnik bilimli odam JS kodidan
-> ularni ko'rishi mumkin. Shuningdek `schema.sql` anon kalit uchun ochiq RLS
-> qo'yadi. Bu **ichki klinika vositasi** uchun mos, lekin kuchli himoya emas.
-> Kalitlarni maxfiy saqlang.
+### Eski versiyadan yangilash
 
-**2. Supabase Auth (tavsiya etiladi, opt-in)** — email + parol, parollar
-bundle'ga tushmaydi, faqat tizimga kirganlar ma'lumotга kira oladi.
-Yoqish uchun:
-1. Supabase → **Authentication** da foydalanuvchilar yarating (email+parol).
-2. `.env` da `VITE_SUPABASE_AUTH=true` qiling (`VITE_USERS` kerak emas).
-3. `supabase/schema.sql` dagi **"authenticated" RLS** siyosatini yoqing
-   (fayl oxiridagi izohli blok), `allow_all` ni o'chiring.
-4. Qayta deploy qiling.
+Oldingi versiyada nickname + parol login (`VITE_USERS`) va hammaga ochiq
+`allow_all` siyosati bor edi. Yangilash tartibi:
 
-> Default holatda (`VITE_SUPABASE_AUTH` bo'sh/false) hech narsa o'zgarmaydi —
-> hozirgi nickname+parol login ishlaydi.
+1. Yuqoridagi 3–5-qadamlar: xodimlarga Supabase Auth hisobi va `staff` roli.
+2. `supabase/schema.sql` ni qayta ishga tushiring — `allow_all` o'chadi, yangi
+   siyosatlar qo'yiladi.
+3. Netlify dan `VITE_USERS` va `VITE_SUPABASE_AUTH` o'zgaruvchilarini o'chirib,
+   qayta deploy qiling.
+4. Agent `config.json` ini yangilang (`agent` foydalanuvchisi, service kalitsiz).
+
+> ⚠️ 1-qadamni deploydan **oldin** bajaring, aks holda hech kim tizimga kira olmaydi.
 
 ---
 
