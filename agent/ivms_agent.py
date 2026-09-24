@@ -4,7 +4,7 @@ Dimed Salary — IVMS Agent
 =========================
 Klinika kompyuterida ishlaydigan agent. Har oyning belgilangan kunida
 (default 1-sana) oldingi oy IVMS "Punch Report" faylini oladi va Supabase
-Storage ga yuklaydi. Sayt ochilганda faylni avtomatik ko'rib, oylikni hisoblaydi.
+Storage ga yuklaydi. Sayt ochilganda faylni avtomatik ko'rib, oylikni hisoblaydi.
 
 2 ta rejim:
   * folder  — IVMS-4200 export qilgan papkadan eng yangi faylni oladi (default)
@@ -25,7 +25,9 @@ import os
 import sys
 import time
 import logging
+import re
 from datetime import datetime, timedelta
+from html import escape
 from pathlib import Path
 
 try:
@@ -102,6 +104,19 @@ def is_due(cfg, state, now=None):
 
 
 # --------------------------------------------------------------- folder rejimi
+DATE_BYTES_RE = re.compile(rb"(\d{4})-(\d{2})-\d{2}")
+
+
+def file_month(data):
+    """Fayl ichidagi sanalardan eng ko'p uchragan oy ('YYYY-MM') yoki None.
+    UTF-16 fayllar uchun nol baytlar olib tashlanadi (sanalar ASCII)."""
+    counts = {}
+    for y, m in DATE_BYTES_RE.findall(data.replace(b"\x00", b"")):
+        key = f"{y.decode()}-{m.decode()}"
+        counts[key] = counts.get(key, 0) + 1
+    return max(counts, key=counts.get) if counts else None
+
+
 def get_report_folder(cfg, month):
     """Export papkasidan eng yangi report faylini oladi."""
     folder = Path(os.path.expanduser(cfg.get("watch_folder", "")))
@@ -117,12 +132,23 @@ def get_report_folder(cfg, month):
         log.warning("Papkada report fayli topilmadi: %s", folder)
         return None
 
-    # Oy nomi fayl ichida bo'lsa ustuvor, aks holda eng yangi (mtime)
-    month_matches = [p for p in candidates if month in p.name]
-    pool = month_matches or candidates
-    newest = max(pool, key=lambda p: p.stat().st_mtime)
-    log.info("Tanlangan fayl: %s", newest.name)
-    return newest.name, newest.read_bytes()
+    # Fayl nomiga ishonmaymiz: ichidagi sanalar bo'yicha shu oyga tegishli fayllardan eng yangisi
+    # (aks holda boshqa oy fayli shu oy papkasiga yuklanib, o'sha oy hisobotini buzardi)
+    matching = []
+    for p in candidates:
+        try:
+            data = p.read_bytes()
+        except OSError as e:
+            log.warning("O'qib bo'lmadi: %s (%s)", p.name, e)
+            continue
+        if file_month(data) == month:
+            matching.append((p.stat().st_mtime, p.name, data))
+    if not matching:
+        log.error("Papkada %s oyi uchun report topilmadi (fayllar ichidagi sanalar tekshirildi): %s", month, folder)
+        return None
+    _, name, data = max(matching)
+    log.info("Tanlangan fayl: %s", name)
+    return name, data
 
 
 # ---------------------------------------------------------------- isapi rejimi
@@ -148,7 +174,7 @@ def get_report_isapi(cfg, month):
     auth = requests.auth.HTTPDigestAuth(user, pwd)
     # (personId, date) -> {name, dept, first, last}
     people = {}
-    pos = 1
+    pos = 0  # searchResultPosition 0 dan boshlanadi
     while True:
         payload = {
             "AcsEventCond": {
@@ -208,7 +234,7 @@ def build_ivms_html(month, people):
         n += 1
         wd = RU_DAYS[datetime.strptime(date, "%Y-%m-%d").weekday()]
         cells = [n, pid, name, "Dimed", "", "", date, wd, "", rec["first"], rec["last"]]
-        rows.append("<tr>" + "".join(f"<td>{c}</td>" for c in cells) + "</tr>")
+        rows.append("<tr>" + "".join(f"<td>{escape(str(c))}</td>" for c in cells) + "</tr>")
 
     y, m = map(int, month.split("-"))
     import calendar
@@ -225,16 +251,54 @@ def build_ivms_html(month, people):
 
 
 # ------------------------------------------------------------------- upload
+def auth_headers(cfg):
+    """Supabase so'rovlari uchun sarlavhalar.
+
+    Tavsiya etilgan: 'agent' rolidagi alohida foydalanuvchi (agent_email/agent_password
+    + supabase_anon_key) — u faqat ivms-reports bucketiga yuklay oladi.
+    Eski config.json dagi supabase_service_key ham ishlaydi, lekin u butun bazaga
+    to'liq (admin) ruxsat beradi — kompyuter buzilsa, hamma ma'lumot xavf ostida.
+    """
+    base = cfg["supabase_url"].rstrip("/")
+    anon = cfg.get("supabase_anon_key")
+    email = cfg.get("agent_email")
+    password = cfg.get("agent_password")
+    if anon and email and password:
+        try:
+            r = requests.post(
+                f"{base}/auth/v1/token?grant_type=password",
+                headers={"apikey": anon, "Content-Type": "application/json"},
+                json={"email": email, "password": password},
+                timeout=30,
+            )
+        except Exception as e:
+            log.error("Agent login xato: %s", e)
+            return None
+        if r.status_code != 200:
+            log.error("Agent login xato (%d): %s", r.status_code, r.text[:300])
+            return None
+        return {"Authorization": f"Bearer {r.json()['access_token']}", "apikey": anon}
+
+    key = cfg.get("supabase_service_key")
+    if key:
+        log.warning("service_role kalit ishlatilmoqda — xavfsizroq usul: agent_email/agent_password (agent/README.md)")
+        return {"Authorization": f"Bearer {key}", "apikey": key}
+
+    log.error("config.json: supabase_anon_key + agent_email + agent_password kerak (agent/README.md)")
+    return None
+
+
 def upload_to_supabase(cfg, month, filename, content):
     """Faylni Supabase Storage ga yuklaydi: {bucket}/{month}/{filename}"""
     base = cfg["supabase_url"].rstrip("/")
     bucket = cfg.get("bucket", "ivms-reports")
-    key = cfg["supabase_service_key"]
+    auth = auth_headers(cfg)
+    if not auth:
+        return False
     object_path = f"{month}/{filename}"
     url = f"{base}/storage/v1/object/{bucket}/{object_path}"
     headers = {
-        "Authorization": f"Bearer {key}",
-        "apikey": key,
+        **auth,
         "x-upsert": "true",
         "Content-Type": "application/vnd.ms-excel",
     }

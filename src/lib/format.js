@@ -18,16 +18,31 @@ export function formatSigned(value) {
   return (n > 0 ? '+' : '−') + s
 }
 
-/** "HH:MM:SS" yoki "HH:MM" -> daqiqalar (00:00 dan). "-", null -> null */
+/**
+ * "HH:MM:SS" yoki "HH:MM" -> daqiqalar (00:00 dan). "-", null -> null.
+ * Sekundlar tashlanadi (08:05:59 -> 485) — yuqoriga yaxlitlash ortiqcha kechikish yozardi.
+ */
 export function timeToMinutes(time) {
   if (!time || time === '-' || time === '--') return null
   const parts = String(time).trim().split(':')
   if (parts.length < 2) return null
   const h = parseInt(parts[0], 10)
   const m = parseInt(parts[1], 10)
-  const s = parts.length > 2 ? parseInt(parts[2], 10) : 0
   if (Number.isNaN(h) || Number.isNaN(m)) return null
-  return h * 60 + m + Math.round((s || 0) / 60)
+  return h * 60 + m
+}
+
+/** daqiqalar -> "HH:MM:00" (sutka ichidagi vaqt; 1440 dan oshsa keyingi kun vaqti) */
+export function minutesToClock(minutes) {
+  const m = ((Math.round(Number(minutes) || 0) % 1440) + 1440) % 1440
+  return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}:00`
+}
+
+/** "YYYY-MM-DD" + n kun -> "YYYY-MM-DD" */
+export function addDays(dateStr, n) {
+  const [y, m, d] = dateStr.split('-').map(Number)
+  const dt = new Date(y, m - 1, d + n)
+  return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`
 }
 
 /** daqiqalar -> "8s 30d" ko'rinishida */

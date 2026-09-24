@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Plus, Pencil, Trash2, Users, Clock, Building2, AlertCircle, ChevronDown, ClipboardPaste, CheckCircle2 } from 'lucide-react'
+import { Plus, Pencil, Trash2, AlertCircle, ChevronDown, ClipboardPaste, CheckCircle2 } from 'lucide-react'
 import { PageHeader, PageLoader, Modal, ConfirmDialog, Field, MoneyInput, Toggle } from '../components/ui'
 import DataTable from '../components/DataTable'
 import { formatSom, shortTime, WEEKDAY_SHORT_UZ } from '../lib/format'
@@ -11,7 +11,7 @@ import * as db from '../lib/db'
 const WEEKDAY_ORDER = [1, 2, 3, 4, 5, 6, 0]
 
 const emptyForm = {
-  name: '', calc_type: 'fix', monthly_salary: '', hourly_rate: '', daily_rate: '',
+  name: '', ivms_person_id: '', calc_type: 'fix', monthly_salary: '', hourly_rate: '', daily_rate: '',
   work_start: '08:00', work_end: '17:00', lunch_minutes: 60,
   department: 'Dimed', position: '', is_active: true,
   work_days: null, // null = umumiy sozlama; array = individual ish kunlari
@@ -34,6 +34,7 @@ export default function Employees() {
   const [deleteTarget, setDeleteTarget] = useState(null)
   const [filter, setFilter] = useState('all')
   const [bulkOpen, setBulkOpen] = useState(false)
+  const [notice, setNotice] = useState('')
 
   async function reload() {
     setEmployees(await db.listEmployees())
@@ -54,8 +55,17 @@ export default function Employees() {
     setModalOpen(true)
   }
   async function confirmDelete() {
-    await db.deleteEmployee(deleteTarget.id)
+    const target = deleteTarget
     setDeleteTarget(null)
+    setNotice('')
+    try {
+      await db.deleteEmployee(target.id)
+    } catch (e) {
+      if (e?.code !== '23503') throw e
+      // Oylik tarixi bor — tarix saqlanishi uchun o'chirilmaydi, nofaol qilinadi
+      await db.updateEmployee(target.id, { is_active: false })
+      setNotice(`"${target.name}" ning oylik tarixi bor — tarix saqlanishi uchun o'chirilmadi, nofaol qilindi.`)
+    }
     reload()
   }
 
@@ -91,12 +101,11 @@ export default function Employees() {
     {
       key: 'calc_type',
       header: 'Turi',
-      render: (e) =>
-        e.calc_type === 'fix' ? (
-          <span className="badge-brand">{CALC_TYPE_LABEL.fix}</span>
-        ) : (
-          <span className="badge-amber">{CALC_TYPE_LABEL.hourly}</span>
-        ),
+      render: (e) => (
+        <span className={e.calc_type === 'fix' ? 'badge-brand' : 'badge-amber'}>
+          {CALC_TYPE_LABEL[e.calc_type] || e.calc_type}
+        </span>
+      ),
     },
     {
       key: 'salary',
@@ -167,6 +176,10 @@ export default function Employees() {
         </button>
       </PageHeader>
 
+      {notice && (
+        <div className="mb-4 rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-700 dark:bg-amber-500/10 dark:text-amber-300">{notice}</div>
+      )}
+
       <DataTable
         columns={columns}
         rows={filtered}
@@ -220,7 +233,7 @@ export default function Employees() {
         onClose={() => setDeleteTarget(null)}
         onConfirm={confirmDelete}
         title="Ishchini o'chirish"
-        message={`"${deleteTarget?.name}" ishchisini o'chirmoqchimisiz? Uning barcha attendance va hisob-kitoblari ham o'chadi.`}
+        message={`"${deleteTarget?.name}" ishchisini o'chirmoqchimisiz? Oylik tarixi bo'lsa, tarix saqlanadi va ishchi faqat nofaol qilinadi.`}
       />
     </div>
   )
@@ -232,6 +245,7 @@ function EmployeeForm({ employee, onClose, onSaved }) {
       ? {
           ...emptyForm,
           ...employee,
+          ivms_person_id: employee.ivms_person_id ?? '',
           monthly_salary: employee.monthly_salary ?? '',
           hourly_rate: employee.hourly_rate ?? '',
           daily_rate: employee.daily_rate ?? '',
@@ -290,6 +304,10 @@ function EmployeeForm({ employee, onClose, onSaved }) {
       overtime_multiplier: numOrNull(form.overtime_multiplier),
       weekend_multiplier: numOrNull(form.weekend_multiplier),
     }
+    // IVMS ID — bo'sh bo'lsa ism bo'yicha moslanadi. Kalit faqat kerak bo'lganda yuboriladi
+    // (sxema hali yangilanmagan bazada ham ishchini saqlash ishlashi uchun)
+    const pid = String(form.ivms_person_id ?? '').trim()
+    if (pid || employee?.ivms_person_id) payload.ivms_person_id = pid || null
 
     setBusy(true)
     try {
@@ -307,6 +325,10 @@ function EmployeeForm({ employee, onClose, onSaved }) {
       <form onSubmit={onSubmit} className="space-y-4">
         <Field label="Ism (IVMS dagi bilan aynan bir xil)" required>
           <input className="input" value={form.name} onChange={(e) => set('name', e.target.value)} placeholder="Aliyeva Nigora" autoFocus />
+        </Field>
+
+        <Field label="IVMS ID (ixtiyoriy)" hint="IVMS dagi «Идентификатор человека». Kiritilsa — ism o'rniga shu bo'yicha moslanadi (bir xil ismlilar uchun kerak). Fayl yuklanganda avtomatik to'ldiriladi.">
+          <input className="input tabular" value={form.ivms_person_id} onChange={(e) => set('ivms_person_id', e.target.value)} placeholder="masalan 1001" />
         </Field>
 
         <Field label="Hisoblash turi" required>
@@ -337,7 +359,7 @@ function EmployeeForm({ employee, onClose, onSaved }) {
           </Field>
         )}
         {form.calc_type === 'daily' && (
-          <Field label="Kunlik summa (so'm/kun)" hint="Kelgan kunlarга ko'paytiriladi" required>
+          <Field label="Kunlik summa (so'm/kun)" hint="Kelgan kunlarga ko'paytiriladi" required>
             <MoneyInput value={form.daily_rate} onChange={(v) => set('daily_rate', v)} placeholder="150,000" />
           </Field>
         )}
@@ -465,6 +487,7 @@ function BulkSalaryModal({ employees, onClose, onSaved }) {
   const [text, setText] = useState('')
   const [busy, setBusy] = useState(false)
   const [done, setDone] = useState(0)
+  const [error, setError] = useState('')
 
   const rows = parseBulkSalary(text)
   const { matched, unmatched, invalid } = matchBulkSalary(rows, employees)
@@ -472,11 +495,13 @@ function BulkSalaryModal({ employees, onClose, onSaved }) {
   async function apply() {
     if (!matched.length) return
     setBusy(true)
+    setError('')
     try {
       await db.updateEmployeesBulk(matched.map((m) => ({ id: m.id, patch: m.patch })))
       setDone(matched.length)
       setTimeout(onSaved, 900)
     } catch (e) {
+      setError(e.message || "Saqlashda xatolik — qaytadan urinib ko'ring")
       setBusy(false)
     }
   }
@@ -545,6 +570,10 @@ function BulkSalaryModal({ employees, onClose, onSaved }) {
               {unmatched.slice(0, 20).map((r, i) => <span key={i} className="badge-amber">{r.name}</span>)}
             </div>
           </div>
+        )}
+
+        {error && (
+          <div className="rounded-xl bg-red-50 px-3 py-2 text-sm text-red-600 dark:bg-red-500/10 dark:text-red-300">{error}</div>
         )}
 
         {done > 0 ? (

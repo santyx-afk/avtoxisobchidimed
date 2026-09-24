@@ -8,7 +8,7 @@ import { IS_DEMO } from '../lib/db'
 import { Spinner } from '../components/ui'
 
 export default function Login() {
-  const { user, login } = useAuth()
+  const { user, login, authError } = useAuth()
   const { theme, toggleTheme } = useTheme()
   const navigate = useNavigate()
   const location = useLocation()
@@ -90,9 +90,9 @@ export default function Login() {
             </div>
           </div>
 
-          {error && (
+          {(error || authError) && (
             <div className="rounded-xl bg-red-50 px-3 py-2 text-sm text-red-600 dark:bg-red-500/10 dark:text-red-300">
-              {error}
+              {error || authError}
             </div>
           )}
 
@@ -102,7 +102,7 @@ export default function Login() {
           </button>
         </form>
 
-        {IS_DEMO && !SUPABASE_AUTH && (
+        {IS_DEMO && (
           <div className="mt-6 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-xs text-slate-500 dark:border-slate-700 dark:bg-slate-800/50 dark:text-slate-400">
             <p className="font-semibold text-slate-600 dark:text-slate-300">DEMO kirish ma'lumotlari:</p>
             <p className="mt-1">
@@ -110,7 +110,7 @@ export default function Login() {
               <code className="rounded bg-slate-200 px-1 dark:bg-slate-700">admin</code>
             </p>
             <p className="mt-1 text-[11px] leading-snug">
-              Ishga tushirishda <code>.env</code> ichida VITE_USERS orqali haqiqiy foydalanuvchilar belgilanadi.
+              Haqiqiy rejimda (Supabase ulangan) kirish Supabase Auth — email va parol orqali bo'ladi.
             </p>
           </div>
         )}

@@ -7,12 +7,14 @@ export const IVMS_BUCKET = import.meta.env.VITE_IVMS_BUCKET || 'ivms-reports'
 // Supabase sozlangan bo'lsa — real DB, aks holda DEMO (localStorage) rejim
 export const isSupabaseConfigured = Boolean(SUPABASE_URL && SUPABASE_ANON_KEY)
 
-// Xavfsiz login: yoqilsa custom login o'rniga Supabase Auth (email+parol) ishlatiladi.
-// Default OFF — hozirgi nickname+parol login o'zgarmaydi.
-export const SUPABASE_AUTH = import.meta.env.VITE_SUPABASE_AUTH === 'true'
+// Real DB bilan faqat Supabase Auth (email+parol) ishlatiladi: parollar bundle'ga
+// tushmaydi, RLS esa faqat 'staff' rolidagi foydalanuvchilarga ruxsat beradi.
+// Nickname+parol login faqat DEMO rejimda qoladi (ma'lumotlar shu brauzerda).
+export const SUPABASE_AUTH = isSupabaseConfigured
 
 /**
- * VITE_USERS ni parse qiladi: "admin:parol1,buxgalter:parol2"
+ * DEMO rejim foydalanuvchilari — VITE_USERS: "admin:parol1,buxgalter:parol2".
+ * Real (Supabase) rejimda ishlatilmaydi.
  * @returns {Array<{nickname: string, password: string}>}
  */
 export function parseUsers() {

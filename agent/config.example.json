@@ -1,6 +1,8 @@
 {
   "supabase_url": "https://YOUR_PROJECT.supabase.co",
-  "supabase_service_key": "SERVICE_ROLE_KEY_BU_YERGA",
+  "supabase_anon_key": "ANON_PUBLIC_KALIT",
+  "agent_email": "agent@dimed.uz",
+  "agent_password": "AGENT_PAROLI",
   "bucket": "ivms-reports",
 
   "mode": "folder",

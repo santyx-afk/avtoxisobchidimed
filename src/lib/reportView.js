@@ -23,7 +23,11 @@ export async function loadMonthView(month) {
   }
 
   const results = calcs.map((c) => ({
-    employee: empMap.get(c.employee_id) || { id: c.employee_id, name: '?', calc_type: 'fix' },
+    // hisob paytidagi shartlar (snapshot) — ishchi keyin o'zgargan bo'lsa ham shu oy to'g'ri ko'rinadi
+    employee: {
+      ...(empMap.get(c.employee_id) || { id: c.employee_id, name: '?', calc_type: 'fix' }),
+      ...(c.employee_snapshot || {}),
+    },
     summary: c,
   }))
 

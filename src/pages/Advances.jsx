@@ -4,6 +4,7 @@ import { PageHeader, PageLoader, StatCard, Modal, ConfirmDialog, Field, MoneyInp
 import DataTable from '../components/DataTable'
 import { formatSom, formatDate, formatMonth, currentMonth } from '../lib/format'
 import { recalculateMonth } from '../lib/runCalculation'
+import { assertMonthUnlocked } from '../lib/monthLock'
 import * as db from '../lib/db'
 
 export default function Advances() {
@@ -15,6 +16,7 @@ export default function Advances() {
   const [modalOpen, setModalOpen] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState(null)
   const [recalcing, setRecalcing] = useState(false)
+  const [pageError, setPageError] = useState('')
 
   async function loadMonths() {
     const reports = await db.listReports()
@@ -39,14 +41,18 @@ export default function Advances() {
         await reloadAdvances(preferred)
       } catch (e) { console.error('Avanslarni yuklashda xatolik:', e) } finally { setLoading(false) }
     })()
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- faqat sahifa ochilganda
   }, [])
 
   async function afterChange(m) {
     await reloadAdvances(m)
     // Shu oy uchun hisob bo'lsa — qayta hisoblaymiz (avans oylikka ta'sir qiladi)
     setRecalcing(true)
-    await recalculateMonth(m)
-    setRecalcing(false)
+    try {
+      await recalculateMonth(m)
+    } finally {
+      setRecalcing(false)
+    }
   }
 
   const empMap = new Map(employees.map((e) => [e.id, e]))
@@ -90,6 +96,10 @@ export default function Advances() {
         <StatCard icon={Users} label="Ishchilar" value={uniqueEmp} hint="ta olgan" tone="brand" />
       </div>
 
+      {pageError && (
+        <div className="mb-4 rounded-xl bg-red-50 px-3 py-2 text-sm text-red-600 dark:bg-red-500/10 dark:text-red-300">{pageError}</div>
+      )}
+
       {recalcing && (
         <div className="mb-4 flex items-center gap-2 rounded-xl bg-brand-50 px-3 py-2 text-sm text-brand-600 dark:bg-brand-500/10 dark:text-brand-300">
           <Loader2 className="h-4 w-4 animate-spin" /> Oylik qayta hisoblanmoqda…
@@ -124,10 +134,16 @@ export default function Advances() {
         open={!!deleteTarget}
         onClose={() => setDeleteTarget(null)}
         onConfirm={async () => {
-          const m = deleteTarget.month
-          await db.deleteAdvance(deleteTarget.id)
+          const target = deleteTarget
           setDeleteTarget(null)
-          await afterChange(m)
+          setPageError('')
+          try {
+            await assertMonthUnlocked(target.month) // qulflangan (to'langan) oy o'zgarmasin
+            await db.deleteAdvance(target.id)
+            await afterChange(target.month)
+          } catch (e) {
+            setPageError(e.message || "Avansni o'chirishda xatolik")
+          }
         }}
         title="Avansni o'chirish"
         message={`${empMap.get(deleteTarget?.employee_id)?.name || ''} — ${formatSom(deleteTarget?.amount)} so'm avansni o'chirasizmi?`}
@@ -137,7 +153,8 @@ export default function Advances() {
 }
 
 function AdvanceForm({ employees, defaultMonth, onClose, onSaved }) {
-  const today = new Date().toISOString().slice(0, 10)
+  // Mahalliy sana (toISOString UTC beradi — Toshkentda 00:00–05:00 da kechagi kun bo'lardi)
+  const today = `${currentMonth()}-${String(new Date().getDate()).padStart(2, '0')}`
   const defaultDate = defaultMonth === currentMonth() ? today : `${defaultMonth}-15`
   const [form, setForm] = useState({ employee_id: employees[0]?.id || '', amount: '', date: defaultDate, reason: '' })
   const [error, setError] = useState('')
@@ -153,6 +170,7 @@ function AdvanceForm({ employees, defaultMonth, onClose, onSaved }) {
     const month = form.date.slice(0, 7)
     setBusy(true)
     try {
+      await assertMonthUnlocked(month) // qulflangan (to'langan) oyga avans qo'shilmasin
       await db.createAdvance({
         employee_id: form.employee_id,
         amount: Number(form.amount),

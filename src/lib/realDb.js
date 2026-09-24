@@ -5,7 +5,32 @@ import { DEFAULT_SETTINGS } from './constants'
 const SETTINGS_KEY = 'app'
 
 function check(error) {
-  if (error) throw new Error(error.message || 'Supabase xatosi')
+  if (!error) return
+  // PGRST202 — funksiya topilmadi: bazada sxema yangilanmagan
+  const e = new Error(error.code === 'PGRST202'
+    ? "Bazada yangi funksiya topilmadi — supabase/schema.sql ni qayta ishga tushiring (README)."
+    : error.message || 'Supabase xatosi')
+  e.code = error.code // masalan 23503 — bog'liq yozuvlar bor (tarixi bor ishchini o'chirish)
+  throw e
+}
+
+const PAGE = 1000
+
+/**
+ * Jadvaldan barcha mos qatorlarni sahifalab o'qiydi. Supabase bitta so'rovga ko'pi bilan
+ * "Max rows" (standart 1000) qator qaytaradi — busiz ~33+ ishchida davomat jimgina kesilib,
+ * qayta hisoblashda yetishmagan kunlar "kelmagan" deb oylikdan ushlanardi.
+ */
+async function selectAll(table, build = (q) => q, columns = '*') {
+  const out = []
+  for (;;) {
+    const { data, count, error } = await build(supabase.from(table).select(columns, { count: 'exact' }))
+      .order('id')
+      .range(out.length, out.length + PAGE - 1)
+    check(error)
+    out.push(...(data || []))
+    if (!data?.length || out.length >= (count ?? 0)) return out
+  }
 }
 
 // Seed real DB da qo'lda (SQL seed) qilinadi — bu yerda no-op
@@ -15,9 +40,7 @@ export async function resetDemoData() {}
 
 // ---------- Employees ----------
 export async function listEmployees() {
-  const { data, error } = await supabase.from('employees').select('*').order('name')
-  check(error)
-  return data || []
+  return selectAll('employees', (q) => q.order('name'))
 }
 
 export async function createEmployee(payload) {
@@ -83,9 +106,7 @@ export async function updateSettings(partial) {
 
 // ---------- Reports ----------
 export async function listReports() {
-  const { data, error } = await supabase.from('monthly_reports').select('*').order('month', { ascending: false })
-  check(error)
-  return data || []
+  return selectAll('monthly_reports', (q) => q.order('month', { ascending: false }))
 }
 
 export async function getReport(id) {
@@ -133,27 +154,13 @@ export async function deleteReport(id) {
 
 // ---------- Attendance ----------
 export async function getAttendanceByReport(reportId) {
-  const { data, error } = await supabase.from('attendance_records').select('*').eq('report_id', reportId)
-  check(error)
-  return data || []
+  return selectAll('attendance_records', (q) => q.eq('report_id', reportId))
 }
 
-export async function replaceAttendanceForReport(reportId, records) {
-  let error
-  ;({ error } = await supabase.from('attendance_records').delete().eq('report_id', reportId))
-  check(error)
-  const rows = records.map((r) => ({ ...r, report_id: reportId }))
-  for (let i = 0; i < rows.length; i += 500) {
-    ;({ error } = await supabase.from('attendance_records').insert(rows.slice(i, i + 500)))
-    check(error)
-  }
-}
 
 // ---------- Salary calculations ----------
 export async function getCalculationsByReport(reportId) {
-  const { data, error } = await supabase.from('salary_calculations').select('*').eq('report_id', reportId)
-  check(error)
-  return data || []
+  return selectAll('salary_calculations', (q) => q.eq('report_id', reportId))
 }
 
 export async function getCalculationsByMonth(month) {
@@ -162,20 +169,39 @@ export async function getCalculationsByMonth(month) {
   return getCalculationsByReport(report.id)
 }
 
-export async function replaceCalculationsForReport(reportId, records) {
-  let error
-  ;({ error } = await supabase.from('salary_calculations').delete().eq('report_id', reportId))
+// ---------- Saqlash — bitta tranzaksiyada (supabase/schema.sql dagi funksiyalar) ----------
+/** Oy hisobotini to'liq almashtiradi: eski hisobot + yangi davomat + natijalar */
+export async function saveMonthReport({ month, file_name, source, attendance, calculations, settings_snapshot = null }) {
+  const { data, error } = await supabase.rpc('save_month_report', {
+    p_month: month,
+    p_file_name: file_name,
+    p_source: source,
+    p_attendance: attendance,
+    p_calculations: calculations,
+    p_settings_snapshot: settings_snapshot,
+  })
   check(error)
-  const rows = records.map((r) => ({ ...r, report_id: reportId }))
-  for (let i = 0; i < rows.length; i += 500) {
-    ;({ error } = await supabase.from('salary_calculations').insert(rows.slice(i, i + 500)))
-    check(error)
-  }
+  return data
+}
+
+/** Hisobot natijalarini almashtiradi (qayta hisoblash); snapshot berilsa — u ham yangilanadi */
+export async function replaceCalculationsForReport(reportId, records, settingsSnapshot = null) {
+  const { error } = await supabase.rpc('replace_report_calculations', {
+    p_report_id: reportId,
+    p_calculations: records,
+    p_settings_snapshot: settingsSnapshot,
+  })
+  check(error)
+}
+
+/** Barcha hisobotlar natijalari (tarix grafigi uchun — faqat yig'indiga kerakli ustunlar) */
+export async function listCalculationTotals() {
+  return selectAll('salary_calculations', (q) => q,
+    'id,report_id,net_salary,base_salary,late_count,total_late_minutes,overtime_hours,total_hours,advance_deduction,difference')
 }
 
 export async function getCalculationsForEmployee(employeeId) {
-  const { data, error } = await supabase.from('salary_calculations').select('*').eq('employee_id', employeeId)
-  check(error)
+  const data = await selectAll('salary_calculations', (q) => q.eq('employee_id', employeeId))
   const reports = await listReports()
   const byId = new Map(reports.map((r) => [r.id, r]))
   return (data || [])
@@ -185,12 +211,12 @@ export async function getCalculationsForEmployee(employeeId) {
 
 // ---------- Advances ----------
 export async function listAdvances({ month, employeeId } = {}) {
-  let q = supabase.from('advances').select('*').order('date', { ascending: false })
-  if (month) q = q.eq('month', month)
-  if (employeeId) q = q.eq('employee_id', employeeId)
-  const { data, error } = await q
-  check(error)
-  return data || []
+  return selectAll('advances', (q) => {
+    let x = q.order('date', { ascending: false })
+    if (month) x = x.eq('month', month)
+    if (employeeId) x = x.eq('employee_id', employeeId)
+    return x
+  })
 }
 
 export async function getAdvancesByEmployeeMonth(employeeId, month) {

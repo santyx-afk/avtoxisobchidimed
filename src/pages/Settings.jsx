@@ -3,10 +3,9 @@ import {
   Save, RotateCcw, Sliders, CalendarDays, Server, Database, FlaskConical,
   CheckCircle2, Loader2, AlertTriangle, PartyPopper, Plus, X,
 } from 'lucide-react'
-import { PageHeader, PageLoader, Field, Toggle, ConfirmDialog } from '../components/ui'
+import { PageHeader, PageLoader, Field, ConfirmDialog } from '../components/ui'
 import { WEEKDAY_NAMES_UZ, formatDate, formatDateTime } from '../lib/format'
 import { DEFAULT_SETTINGS } from '../lib/constants'
-import { recalculateMonth } from '../lib/runCalculation'
 import { IS_DEMO } from '../lib/db'
 import { SUPABASE_URL } from '../lib/config'
 import * as db from '../lib/db'
@@ -19,7 +18,6 @@ export default function Settings() {
   const [resetOpen, setResetOpen] = useState(false)
   const [holidayInput, setHolidayInput] = useState('')
   const set = (k, v) => { setForm((f) => ({ ...f, [k]: v })); setSaved(false) }
-  const setAgent = (k, v) => { setForm((f) => ({ ...f, agent: { ...f.agent, [k]: v } })); setSaved(false) }
 
   useEffect(() => {
     ;(async () => {
@@ -49,22 +47,22 @@ export default function Settings() {
     setForm((f) => ({ ...f, holidays: (f.holidays || []).filter((d) => d !== date) }))
   }
 
+  // O'tgan oylar qayta hisoblanmaydi: ular hisob paytidagi sozlamalar bilan saqlangan (snapshot)
   async function save() {
     setBusy(true)
-    await db.updateSettings({
+    try {
+      await db.updateSettings({
       late_penalty_per_min: Number(form.late_penalty_per_min) || 0,
       grace_period_min: Number(form.grace_period_min) || 0,
       overtime_multiplier: Number(form.overtime_multiplier) || 1,
       weekend_multiplier: Number(form.weekend_multiplier) || 1,
       weekend_days: form.weekend_days,
       holidays: form.holidays || [],
-      agent: form.agent,
-    })
-    // Sozlama o'zgargani uchun barcha oylarni qayta hisoblaymiz
-    const reports = await db.listReports()
-    for (const r of reports) await recalculateMonth(r.month)
-    setBusy(false)
-    setSaved(true)
+      })
+      setSaved(true)
+    } finally {
+      setBusy(false)
+    }
   }
 
   async function doReset() {
@@ -86,7 +84,7 @@ export default function Settings() {
 
       {saved && (
         <div className="mb-4 flex items-center gap-2 rounded-xl bg-emerald-50 px-3 py-2 text-sm text-emerald-600 dark:bg-emerald-500/10 dark:text-emerald-300">
-          <CheckCircle2 className="h-4 w-4" /> Sozlamalar saqlandi va barcha oylar qayta hisoblandi.
+          <CheckCircle2 className="h-4 w-4" /> Sozlamalar saqlandi.
         </div>
       )}
 
@@ -187,21 +185,11 @@ export default function Settings() {
             <Server className="h-5 w-5 text-brand-500" />
             <h3 className="font-semibold text-slate-800 dark:text-slate-100">IVMS Agent</h3>
           </div>
-          <div className="mb-4 flex items-center justify-between rounded-xl bg-slate-50 px-4 py-3 dark:bg-slate-800/50">
-            <div>
-              <p className="text-sm font-medium text-slate-700 dark:text-slate-200">Avtomatik yuklash</p>
-              <p className="text-xs text-slate-400">Agent klinikadagi kompyuterda ishlaydi</p>
-            </div>
-            <Toggle checked={form.agent.enabled} onChange={(v) => setAgent('enabled', v)} />
-          </div>
-          <div className="grid grid-cols-2 gap-4">
-            <Field label="Export kuni" hint="oyning kuni (1-28)">
-              <input type="number" min="1" max="28" className="input tabular" value={form.agent.run_day} onChange={(e) => setAgent('run_day', Number(e.target.value))} />
-            </Field>
-            <Field label="Soat" hint="0-23">
-              <input type="number" min="0" max="23" className="input tabular" value={form.agent.run_hour} onChange={(e) => setAgent('run_hour', Number(e.target.value))} />
-            </Field>
-          </div>
+          <p className="rounded-xl bg-slate-50 px-4 py-3 text-sm text-slate-500 dark:bg-slate-800/50 dark:text-slate-400">
+            Agent klinika kompyuterida ishlaydi. Qaysi kun va soatda yuklashi o'sha kompyuterdagi
+            <code className="mx-1 rounded bg-slate-200 px-1 dark:bg-slate-700">config.json</code> da sozlanadi
+            (agent/README.md). Pastda — sayt agent fayllarini oxirgi marta qayta ishlagandagi holat.
+          </p>
           <div className="mt-4 space-y-2 border-t border-slate-100 pt-3 text-sm dark:border-slate-800">
             <div className="flex justify-between">
               <span className="text-slate-500 dark:text-slate-400">Oxirgi yuklash</span>
@@ -211,6 +199,9 @@ export default function Settings() {
               <span className="text-slate-500 dark:text-slate-400">Holat</span>
               <span className="font-medium text-slate-700 dark:text-slate-200">{form.agent.last_status || 'idle'}</span>
             </div>
+            {form.agent.last_error && (
+              <p className="break-words text-xs text-red-500">{form.agent.last_error}</p>
+            )}
           </div>
         </div>
 
@@ -250,7 +241,9 @@ export default function Settings() {
 
       <div className="mt-6 flex items-start gap-2 rounded-xl bg-slate-100 px-4 py-3 text-xs text-slate-500 dark:bg-slate-800/50 dark:text-slate-400">
         <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-        Sozlamalarni saqlaganingizda, barcha hisoblangan oylar yangi koeffitsientlar bilan qayta hisoblanadi.
+        Yangi sozlamalar keyingi hisob-kitoblarga qo'llanadi. O'tgan oylar o'zgarmaydi — ular hisob paytidagi
+        sozlamalar bilan saqlangan. Oyni yangi sozlamalar bilan hisoblash uchun «Oylik hisoblash» sahifasida
+        «Qayta hisoblash» tugmasini bosing.
       </div>
 
       <ConfirmDialog

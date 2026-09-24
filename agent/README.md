@@ -2,7 +2,7 @@
 
 Klinika kompyuteriga o'rnatiladigan Python skript. Har oyning belgilangan
 kunida (default — 1-sana, soat 10:00) oldingi oy IVMS "Punch Report" faylini
-oladi va **Supabase Storage** ga yuklaydi. Sayt ochilганда faylni avtomatik
+oladi va **Supabase Storage** ga yuklaydi. Sayt ochilganda faylni avtomatik
 ko'rib, oylikni hisoblaydi.
 
 ## 📋 Talablar
@@ -32,7 +32,9 @@ ko'rib, oylikni hisoblaydi.
 ```json
 {
   "supabase_url": "https://xxxx.supabase.co",
-  "supabase_service_key": "SERVICE_ROLE_KEY",
+  "supabase_anon_key": "ANON_PUBLIC_KALIT",
+  "agent_email": "agent@dimed.uz",
+  "agent_password": "AGENT_PAROLI",
   "bucket": "ivms-reports",
   "mode": "folder",
   "target": "previous",
@@ -46,20 +48,40 @@ ko'rib, oylikni hisoblaydi.
 | Maydon | Izoh |
 |---|---|
 | `supabase_url` | Supabase loyiha URL |
-| `supabase_service_key` | **Service role** kalit (Settings → API). Faqat agentda saqlanadi! |
+| `supabase_anon_key` | `anon public` kalit (Settings → API) |
+| `agent_email` / `agent_password` | Agent uchun alohida Supabase foydalanuvchisi (`agent` roli, pastga qarang) |
 | `mode` | `folder` (papkadan) yoki `isapi` (qurilmadan to'g'ridan-to'g'ri) |
 | `target` | `previous` (oldingi oy) yoki `current` (joriy oy) |
 | `schedule.day` / `.hour` | Qaysi kun va soatda ishlashi |
 | `watch_folder` | `folder` rejimi: IVMS-4200 export qiladigan papka |
 | `isapi` | `isapi` rejimi: Hikvision qurilma IP, login, parol |
 
+### Agent foydalanuvchisini yaratish
+
+Agent butun bazaga emas, faqat `ivms-reports` bucketiga fayl yuklash huquqiga ega
+bo'lishi kerak:
+
+1. Supabase → **Authentication → Users → Add user**: masalan `agent@dimed.uz`
+   (kuchli parol, "Auto Confirm User" belgilangan).
+2. **SQL Editor** da unga `agent` rolini bering:
+   ```sql
+   update auth.users
+      set raw_app_meta_data = coalesce(raw_app_meta_data, '{}'::jsonb) || '{"role":"agent"}'::jsonb
+    where email = 'agent@dimed.uz';
+   ```
+3. Email/parolni `config.json` ga yozing.
+
+> Eski `config.json` dagi `supabase_service_key` hali ham ishlaydi, lekin u butun
+> bazaga to'liq (admin) ruxsat beradi — agent ogohlantirish yozadi. Yuqoridagi
+> usulga o'tib, service kalitni `config.json` dan o'chiring.
+
 ## 🔀 Rejimlar
 
 ### 1. `folder` (tavsiya etiladi — sodda)
 
 IVMS-4200 ni har oy `watch_folder` ga "Punch Report" eksport qiladigan qilib
-sozlang (yoki qo'lda saqlang). Agent shu papkadagi eng yangi (yoki oy nomiga
-mos) faylni oladi va yuklaydi.
+sozlang (yoki qo'lda saqlang). Agent papkadagi fayllar **ichidagi sanalarni**
+tekshirib, kerakli oyga tegishli eng yangi faylni yuklaydi (fayl nomi muhim emas).
 
 ### 2. `isapi` (ilg'or — to'liq avtomatik)
 
@@ -82,8 +104,10 @@ kuni tekshiradi va vaqti kelgan (hali yuklanmagan) oyni **yoniqda** yuklaydi.
 
 ## 🔒 Xavfsizlik
 
-- **Service role** kalit faqat agent kompyuterida (`config.json`) saqlanadi,
-  hech qachon frontendga qo'yilmaydi.
+- Agent `agent` rolidagi alohida foydalanuvchi bilan ishlaydi: u faqat
+  `ivms-reports` bucketiga yuklay oladi, oylik jadvallarini ko'ra olmaydi va
+  fayllarni o'chira olmaydi. **Service role** kalitni agentga ham, frontendga
+  ham qo'ymang.
 - `config.json`, `state.json`, `*.log` git ga qo'shilmaydi (`.gitignore`).
 
 ## 🧰 Nosozliklarni tuzatish
@@ -92,6 +116,7 @@ kuni tekshiradi va vaqti kelgan (hali yuklanmagan) oyni **yoniqda** yuklaydi.
 |---|---|
 | `Python topilmadi` | Python ni PATH bilan o'rnating |
 | `watch_folder mavjud emas` | `config.json` da to'g'ri yo'lni ko'rsating |
-| `Yuklash xato (401/403)` | `supabase_service_key` va bucket nomini tekshiring |
+| `Agent login xato (400)` | `agent_email` / `agent_password` ni tekshiring |
+| `Yuklash xato (401/403)` | Agent foydalanuvchisiga `agent` roli berilganini va bucket nomini tekshiring |
 | Fayl yuklanmayapti | `agent.log` ni ko'ring |
 | ISAPI xato | Qurilma IP, login/parol va tarmoqni tekshiring |

@@ -30,12 +30,13 @@ export const createReport = impl.createReport
 export const deleteReport = impl.deleteReport
 
 export const getAttendanceByReport = impl.getAttendanceByReport
-export const replaceAttendanceForReport = impl.replaceAttendanceForReport
+export const saveMonthReport = impl.saveMonthReport
 
 export const getCalculationsByReport = impl.getCalculationsByReport
 export const getCalculationsByMonth = impl.getCalculationsByMonth
 export const replaceCalculationsForReport = impl.replaceCalculationsForReport
 export const getCalculationsForEmployee = impl.getCalculationsForEmployee
+export const listCalculationTotals = impl.listCalculationTotals
 
 export const listAdvances = impl.listAdvances
 export const getAdvancesByEmployeeMonth = impl.getAdvancesByEmployeeMonth

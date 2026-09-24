@@ -11,7 +11,7 @@ oylik farqini batafsil sabablari bilan** ko'rsatadi.
 
 ## ✨ Imkoniyatlar
 
-- 🔐 **Custom login** — nickname + parol (`.env` da 3 ta foydalanuvchi)
+- 🔐 **Xavfsiz kirish** — Supabase Auth (email + parol) va rollar (RLS); DEMO rejimda oddiy login
 - 📊 **Dashboard** — oylik statistika, ogohlantirishlar, agent statusi, mini reyting
 - 👥 **Ishchilar CRUD** — fix oylik yoki soatbay, individual ish vaqti va tushlik
 - 📥 **IVMS parser** — Hikvision "Punch Report" (HTML-xls) ni o'qiydi, bitta
@@ -53,7 +53,7 @@ oylik farqini batafsil sabablari bilan** ko'rsatadi.
 | DB / Backend | Supabase (free tier) |
 | Grafik | Recharts |
 | Excel | SheetJS (xlsx) |
-| Auth | Custom (nickname + parol, `.env`) |
+| Auth | Supabase Auth + RLS rollari (`staff`, `agent`); DEMO: nickname + parol |
 | Deploy | Netlify |
 | Agent | Python 3 |
 
@@ -83,12 +83,23 @@ parser va hisoblashni sinab ko'ring.
 
 1. [supabase.com](https://supabase.com) da bepul loyiha yarating.
 2. **SQL Editor** da `supabase/schema.sql` faylini ishga tushiring (jadvallar,
-   RLS, storage bucket avtomatik yaratiladi).
-3. **Settings → API** dan `Project URL` va `anon public` kalitni oling.
-4. `.env` faylini yarating (`.env.example` dan nusxa oling):
+   RLS, storage bucket avtomatik yaratiladi). Fayl qayta ishga tushirilsa ham xavfsiz.
+3. **Authentication → Users → Add user** — har bir xodim uchun email + parol
+   ("Auto Confirm User" belgilangan).
+4. **SQL Editor** da ularga `staff` rolini bering:
+
+```sql
+update auth.users
+   set raw_app_meta_data = coalesce(raw_app_meta_data, '{}'::jsonb) || '{"role":"staff"}'::jsonb
+ where email in ('admin@dimed.uz', 'buxgalter@dimed.uz', 'direktor@dimed.uz');
+```
+
+5. **Authentication → Sign In / Providers** da "Allow new users to sign up" ni
+   o'chiring (qo'shimcha himoya).
+6. **Settings → API** dan `Project URL` va `anon public` kalitni oling.
+7. `.env` faylini yarating (`.env.example` dan nusxa oling):
 
 ```env
-VITE_USERS=admin:parol1,buxgalter:parol2,direktor:parol3
 VITE_SUPABASE_URL=https://xxxx.supabase.co
 VITE_SUPABASE_ANON_KEY=eyJhbGci...
 VITE_IVMS_BUCKET=ivms-reports
@@ -98,25 +109,31 @@ VITE_IVMS_BUCKET=ivms-reports
 
 ## 🔒 Xavfsizlik
 
-Ilova **ikki xil login** rejimini qo'llab-quvvatlaydi:
+- Supabase ulangan bo'lsa, kirish **faqat Supabase Auth** (email + parol) orqali.
+  Parollar frontend bundle'ga tushmaydi, sessiya brauzerda saqlanadi.
+- Ma'lumotlarni **RLS** himoya qiladi: jadvallar va IVMS fayllarini faqat
+  `staff` rolidagi foydalanuvchi ko'radi. Rol `app_metadata` da turadi — uni
+  faqat administrator SQL orqali beradi, foydalanuvchi o'zi o'zgartira olmaydi.
+  Shuning uchun `anon` kalit (u baribir ochiq) bilan ham, ro'yxatdan o'tib olgan
+  begona hisob bilan ham ma'lumotni ko'rib bo'lmaydi.
+- IVMS agent `agent` rolidagi alohida foydalanuvchi bilan ishlaydi — faqat
+  fayl yuklay oladi ([`agent/README.md`](agent/README.md)).
+- DEMO rejimda (Supabase sozlanmagan) oddiy nickname + parol login ishlaydi —
+  ma'lumotlar faqat shu brauzerda saqlanadi.
 
-**1. Custom login (default)** — nickname + parol, `.env` (`VITE_USERS`).
-> ⚠️ Bu parollar frontend build ichiga tushadi — texnik bilimli odam JS kodidan
-> ularni ko'rishi mumkin. Shuningdek `schema.sql` anon kalit uchun ochiq RLS
-> qo'yadi. Bu **ichki klinika vositasi** uchun mos, lekin kuchli himoya emas.
-> Kalitlarni maxfiy saqlang.
+### Eski versiyadan yangilash
 
-**2. Supabase Auth (tavsiya etiladi, opt-in)** — email + parol, parollar
-bundle'ga tushmaydi, faqat tizimga kirganlar ma'lumotга kira oladi.
-Yoqish uchun:
-1. Supabase → **Authentication** da foydalanuvchilar yarating (email+parol).
-2. `.env` da `VITE_SUPABASE_AUTH=true` qiling (`VITE_USERS` kerak emas).
-3. `supabase/schema.sql` dagi **"authenticated" RLS** siyosatini yoqing
-   (fayl oxiridagi izohli blok), `allow_all` ni o'chiring.
-4. Qayta deploy qiling.
+Oldingi versiyada nickname + parol login (`VITE_USERS`) va hammaga ochiq
+`allow_all` siyosati bor edi. Yangilash tartibi:
 
-> Default holatda (`VITE_SUPABASE_AUTH` bo'sh/false) hech narsa o'zgarmaydi —
-> hozirgi nickname+parol login ishlaydi.
+1. Yuqoridagi 3–5-qadamlar: xodimlarga Supabase Auth hisobi va `staff` roli.
+2. `supabase/schema.sql` ni qayta ishga tushiring — `allow_all` o'chadi, yangi
+   siyosatlar qo'yiladi.
+3. Netlify dan `VITE_USERS` va `VITE_SUPABASE_AUTH` o'zgaruvchilarini o'chirib,
+   qayta deploy qiling.
+4. Agent `config.json` ini yangilang (`agent` foydalanuvchisi, service kalitsiz).
+
+> ⚠️ 1-qadamni deploydan **oldin** bajaring, aks holda hech kim tizimga kira olmaydi.
 
 ---
 
@@ -148,7 +165,14 @@ Row 4+: ma'lumotlar
 
 Parser (`src/lib/ivmsParser.js`) barcha katakchalarni tekislaydi va **11 ustunlik
 chunklarga** bo'ladi — bu bitta `<tr>` ichida bir nechta yozuv kelgan holatni ham
-to'g'ri hal qiladi. Ishchilar IVMS dagi **ism** bo'yicha moslanadi.
+to'g'ri hal qiladi. Ishchilar avval **IVMS ID** (`Идентификатор человека`), bo'lmasa
+**ism** bo'yicha moslanadi. Bir xil ismlilar avtomatik moslanmaydi — ularga
+"Ishchilar" sahifasida IVMS ID kiriting (fayl yuklanganda bir ma'noli moslanganlarga
+ID o'zi yoziladi). Oy — fayldagi eng ko'p uchragan oy; boshqa oy yozuvlari hisoblanmaydi.
+
+Fayl IVMS'ning HTML-xls ko'rinishida (UTF-8, UTF-16 yoki Windows-1251) yoki Excel'da
+ochib qayta saqlangan haqiqiy `.xls`/`.xlsx` bo'lishi mumkin. Orada begona yoki buzilgan
+qator bo'lsa, keyingi yozuvlar yo'qolmaydi (parser qayta sinxronlanadi) va ogohlantirish chiqadi.
 
 ---
 
@@ -158,12 +182,24 @@ to'g'ri hal qiladi. Ishchilar IVMS dagi **ism** bo'yicha moslanadi.
 
 1. **Ish soatlari** = chiqish − kirish − tushlik
 2. **Kech qolish** = kirish − ish boshlanishi − grace; jarima = daqiqa × narx
-3. **Overtime** = ish tugashidan keyingi soatlar × koeffitsient (default 1.5×)
+3. **Overtime** = ish tugashidan keyingi soatlar × koeffitsient (default 1.5×) — faqat
+   jadvaldagi soatlar to'liq ishlangandan keyin (kech kelib kech ketish overtime emas)
 4. **Dam olish kuni** ishlagan soatlar × koeffitsient (default 2×)
 5. **Avans** oylikdan ushlab qolinadi
+6. **Bitta punch** (kirish yoki chiqish yo'q) — to'liq kun hisoblanadi va izohda
+   "tekshiring" deb chiqadi; punch chiqishga o'xshasa kechikish yozilmaydi
+7. **Tungi smena** (masalan 22:00–06:00) — IVMS kalendar kuni bo'yicha bergan punchlar
+   smena boshlangan sanaga juftlanadi (06:00 — kechagi smena, 22:00 — bugungi)
 
 **Fix oylik:** `kunlik = oylik / ish_kunlari`; kelgan kunlarga ko'paytiriladi.
 **Soatbay:** ishlagan soatlar × stavka.
+
+**O'tgan oylar o'zgarmaydi:** hisobot saqlanganda sozlamalar va har bir ishchi
+shartlarining nusxasi (snapshot) ham saqlanadi. Keyinroq oylik yoki sozlama
+o'zgarsa (yoki o'sha oyga avans qo'shilsa), oy o'z shartlari bilan qayta
+hisoblanadi. Oyni yangi shartlar bilan hisoblash — «Qayta hisoblash» tugmasi.
+Hisobot bitta tranzaksiyada saqlanadi, oyiga bitta; qulflangan oyga (hisobot,
+avans) o'zgartirish kiritilmaydi; tarixi bor ishchi o'chirilmaydi — nofaol qilinadi.
 
 Natijada har bir ishchi uchun **farq sababi** yoziladi, masalan:
 
@@ -180,7 +216,7 @@ Belgilangan: 6,000,000 | Hisoblangan: 4,881,221 | Farq: −1,118,779
 ## 🤖 IVMS Agent (avtomatik yuklash)
 
 Klinika kompyuteriga o'rnatiladigan Python skript. Har oyning belgilangan
-kunida oldingi oy reportini Supabase Storage ga yuklaydi; sayt ochilганda
+kunida oldingi oy reportini Supabase Storage ga yuklaydi; sayt ochilganda
 faylni avtomatik ko'rib hisoblaydi.
 
 To'liq qo'llanma: [`agent/README.md`](agent/README.md)
@@ -204,6 +240,8 @@ python ivms_agent.py --now    # darhol sinash
 │   │   ├── runCalculation.js  # parse -> moslashtirish -> saqlash
 │   │   ├── db.js              # ma'lumot qatlami (Supabase | DEMO)
 │   │   ├── excel.js           # Excel export
+│   │   ├── readReportFile.js  # IVMS fayl o'qish (HTML-xls, UTF-16/1251, xlsx)
+│   │   ├── authRole.js        # Supabase Auth rol tekshiruvi (staff)
 │   │   └── agentStorage.js    # agent fayllarini avtomatik sync
 │   ├── components/            # UI (DataTable, Modal, SalaryDetail, ...)
 │   └── pages/                 # Dashboard, Employees, Calculate, ...
@@ -215,18 +253,19 @@ python ivms_agent.py --now    # darhol sinash
 
 ---
 
-## 🧪 Testlar
+## 🧪 Testlar va CI
 
-Parser va hisoblash mantig'i uchun unit testlar (Vitest):
+Unit testlar (Vitest): hisoblash (kechikish, overtime, tungi smena, bayram, snapshot),
+IVMS parser va fayl o'qish (UTF-8/16, 1251, xlsx), ishchilarni moslash, saqlash/qayta
+hisoblash, rollar va Supabase sahifalash.
 
 ```bash
-npm test
+npm test       # testlar
+npm run lint   # ESLint
 ```
 
-```
-✓ src/lib/ivmsParser.test.js  (9 tests)
-✓ src/lib/salaryCalc.test.js  (10 tests)
-```
+GitHub Actions (`.github/workflows/ci.yml`) har push va PR da lint, test, build va
+agent sintaksisini tekshiradi.
 
 ---
 
@@ -238,3 +277,4 @@ npm test
 | `npm run build` | Production build |
 | `npm run preview` | Build ni ko'rish |
 | `npm test` | Testlar |
+| `npm run lint` | ESLint |

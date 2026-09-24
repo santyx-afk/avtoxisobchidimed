@@ -35,7 +35,7 @@ if not exist config.json (
   echo [3/4] config.json yaratildi. Uni to'ldiring...
   echo.
   echo >>> config.json faylini to'ldiring:
-  echo     - supabase_url va supabase_service_key
+  echo     - supabase_url, supabase_anon_key, agent_email, agent_password
   echo     - watch_folder (IVMS-4200 export papkasi)
   echo.
   notepad config.json

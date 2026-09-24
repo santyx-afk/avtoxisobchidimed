@@ -41,7 +41,9 @@ export default function Dashboard() {
       setCalcs([])
       return
     }
-    db.getCalculationsByMonth(month).then(setCalcs)
+    let stale = false // oy tez almashtirilsa eski javob yangisini bosib ketmasin
+    db.getCalculationsByMonth(month).then((rows) => { if (!stale) setCalcs(rows) })
+    return () => { stale = true }
   }, [month])
 
   const empMap = useMemo(() => new Map(employees.map((e) => [e.id, e])), [employees])
@@ -57,13 +59,15 @@ export default function Dashboard() {
     const withName = calcs.map((c) => ({ ...c, name: empMap.get(c.employee_id)?.name || '—' }))
     const byHours = [...withName].sort((a, b) => (b.total_hours || 0) - (a.total_hours || 0))
     const byLate = [...withName].sort((a, b) => (b.total_late_minutes || 0) - (a.total_late_minutes || 0))
+    // "Ideal" — kamida bir kun kelgan va eng kam kech qolgan (umuman kelmagan odam emas)
+    const present = byLate.filter((c) => (c.work_days || 0) > 0)
     const warnings = withName
       .filter((c) => Math.abs(c.difference || 0) > 0)
       .sort((a, b) => Math.abs(b.difference || 0) - Math.abs(a.difference || 0))
     return {
       fund, lateCount, lateMinutes, totalHours, warnings,
       topHours: byHours[0], lowHours: byHours[byHours.length - 1],
-      topLate: byLate[0], idealWorker: byLate[byLate.length - 1],
+      topLate: byLate[0], idealWorker: present[present.length - 1],
     }
   }, [calcs, empMap])
 
@@ -167,10 +171,12 @@ export default function Dashboard() {
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-slate-500 dark:text-slate-400">Holat</span>
-                {agentStatus.enabled ? (
-                  <span className="badge-green"><CheckCircle2 className="h-3.5 w-3.5" /> Faol</span>
+                {agentStatus.last_status === 'error' ? (
+                  <span className="badge-red" title={agentStatus.last_error || ''}><AlertTriangle className="h-3.5 w-3.5" /> Xato</span>
+                ) : agentStatus.last_status === 'ok' ? (
+                  <span className="badge-green"><CheckCircle2 className="h-3.5 w-3.5" /> Ishlayapti</span>
                 ) : (
-                  <span className="badge-slate"><CircleDashed className="h-3.5 w-3.5" /> O'chirilgan</span>
+                  <span className="badge-slate"><CircleDashed className="h-3.5 w-3.5" /> Ma'lumot yo'q</span>
                 )}
               </div>
             </div>
