@@ -150,6 +150,12 @@ Xom punchlar (bitta qator = bitta punch). Parser formatni sarlavhadagi «Вре�
 
 **Qo'lda tuzatish:** «Oylik hisoblash» sahifasida xodim tafsilotida (xom format oyi, oy qulflanmagan bo'lsa) kun qatoridagi qalamcha bilan juftliklar kiritiladi/o'zgartiriladi/o'chiriladi, «Kun qo'shish» bilan yangi kun qo'shiladi. Saqlangach oy saqlangan juftliklardan qayta hisoblanadi (`recalculateMonth(month, { dayOverrides })`); kunda «Qo'lda tuzatilgan» belgisi va izoh qoladi. Bo'sh juftliklar — kun «kelmagan». Fayl qayta yuklansa, qo'lda tuzatishlar yo'qoladi (oy qayta yoziladi).
 
+**Muammolarni ko'rish va tuzatish:** «Oylik hisoblash» sahifasidagi ogohlantirishlar (yopilmagan juftlik, faqat «Нет», Приход'siz Уход, tanaffus) bosiladi — ishchi/kun ro'yxati ochiladi, «Tuzatish» shu kun tuzatish oynasini darrov ochadi (mavjud vaqtlar oldindan to'ldiriladi). Faqat «Нет» kunda o'sha kundagi birinchi va oxirgi punch ko'rsatiladi; tungi jadvalli xodimda kechqurundan ertasi kuni 10:00 gacha bo'lgan punchlar bitta smena hisoblanadi.
+
+**Sutkalik smena (24 soat):** ishchi formasida «Sutkalik smena» va «Oyiga sutkalar soni» (`employees.duty_24h`, `duty_days`). Bir sutka = bitta smena (Приход sanasiga, Уход ertasi kuni, juftlik ≤ 30 soat); dam olish/bayram, overtime va kelmagan kun jarimasi yo'q; fix: oylik ÷ kutilgan sutkalar × ishlagan sutkalar, kunbay: sutka × kunlik summa. Faqat xom formatda.
+
+**Soatbay** UI dan olib tashlandi (forma, filtr); hisoblash dvigateli eski soatbay ishchilar uchun saqlangan.
+
 ⚠️ **Bu o'zgarish sxemani o'zgartiradi — `supabase/schema.sql` ni qayta ishga tushiring** (deploydan oldin): yangi ustunlar `sessions`, `issues`, `replace_report_calculations` yangi imzo (eski 3 argumentli o'chiriladi). Sxema yangilanmagan bo'lsa, xom format saqlanmaydi va «schema.sql ni qayta ishga tushiring» xatosi chiqadi (juftliklar jimgina yo'qolmaydi). Eski format bunga bog'liq emas.
 
 ## 7. Ma'lumotlar yaxlitligi
@@ -176,7 +182,7 @@ Xom punchlar (bitta qator = bitta punch). Parser formatni sarlavhadagi «Вре�
 
 ```bash
 npm install
-npm test        # 146 ta unit test
+npm test        # 155 ta unit test
 npm run lint    # ESLint
 npm run build
 ```

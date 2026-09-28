@@ -1,8 +1,7 @@
 // IVMS hisobotini qayta ishlash: parse -> ishchilarni moslashtirish -> hisoblash -> saqlash
 import { parseIvmsHtml, normalizeName } from './ivmsParser'
-import { calcEmployeeSalary, summarizeDayIssues } from './salaryCalc'
+import { calcEmployeeSalary } from './salaryCalc'
 import { IVMS_FORMAT, DAY_ISSUE } from './constants'
-import { formatDateShort } from './format'
 import { isMonthLocked, assertMonthUnlocked } from './monthLock'
 import * as db from './db'
 
@@ -13,6 +12,7 @@ const pidOf = (v) => String(v ?? '').trim()
 const TERM_KEYS = [
   'calc_type', 'monthly_salary', 'hourly_rate', 'daily_rate', 'work_start', 'work_end', 'lunch_minutes',
   'work_days', 'grace_period_min', 'late_penalty_per_min', 'overtime_multiplier', 'weekend_multiplier',
+  'duty_24h', 'duty_days',
 ]
 const SETTING_KEYS = [
   'late_penalty_per_min', 'grace_period_min', 'overtime_multiplier', 'weekend_multiplier', 'weekend_days', 'holidays',
@@ -201,23 +201,6 @@ export async function rememberPersonIds(learned) {
   }
 }
 
-/** Xom format: kunlik izohlar (yopilmagan juftliklar, faqat «Нет» kunlar...) bo'yicha ogohlantirishlar */
-export function dayIssueWarnings(days, statefulDates = []) {
-  const warnings = []
-  const c = summarizeDayIssues(days)
-  if (c.unclosed > 0) warnings.push(`${c.unclosed} ta yopilmagan juftlik (Приход bor, Уход bosilmagan) — hisoblanmadi.`)
-  if (c.onlyNone > 0) {
-    const d = statefulDates || []
-    const range = d.length
-      ? ` Приход/Уход belgilangan kunlar: ${d.length === 1 ? formatDateShort(d[0]) : `${formatDateShort(d[0])}–${formatDateShort(d[d.length - 1])}`}.`
-      : ''
-    warnings.push(`${c.onlyNone} ta xodim-kun faqat «Нет» punchlardan iborat — kelmagan hisoblandi.${range}`)
-  }
-  if (c.orphanOut > 0) warnings.push(`${c.orphanOut} ta Уход oldidan Приход yo'q — hisoblanmadi.`)
-  if (c.orphanBreak > 0) warnings.push(`${c.orphanBreak} ta tanaffus punchi juftlanmadi — tanaffus ayrilmadi.`)
-  return warnings
-}
-
 /** Foydalanuvchiga ko'rsatiladigan ogohlantirishlar */
 export function reportWarnings(parsed, computed) {
   const warnings = []
@@ -227,7 +210,6 @@ export function reportWarnings(parsed, computed) {
     warnings.push(`Faylda boshqa oy yozuvlari ham bor (${list}) — faqat ${parsed.month} hisoblandi.`)
   }
   if (parsed?.format === IVMS_FORMAT.RAW_RECORDS) {
-    warnings.push(...dayIssueWarnings(computed?.allDays, parsed.meta.statefulDates))
     if (parsed.meta.unknownStates > 0) warnings.push(`${parsed.meta.unknownStates} ta punchning holati tanilmadi — «Нет» deb olindi.`)
   }
   if (parsed?.meta?.skipped > 0) {

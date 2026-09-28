@@ -32,3 +32,51 @@ export function parseSessionsInput(rows, { night = false } = {}) {
   }
   return out
 }
+
+const hm = (min) => `${String(Math.floor((min % 1440) / 60)).padStart(2, '0')}:${String(min % 60).padStart(2, '0')}`
+const rowOf = (a, b) => ({ in: a == null ? '' : hm(a), out: b == null ? '' : hm(b) })
+
+/**
+ * Tuzatish oynasi uchun boshlang'ich qatorlar: mavjud juftliklar + muammodan ma'lum vaqtlar
+ * (yopilmagan Приход — kirish to'ldirilgan, Уход bo'sh; Приход'siz Уход — chiqish to'ldirilgan;
+ * faqat «Нет» — birinchi va oxirgi punch taklif sifatida). Bo'sh joyni foydalanuvchi to'ldiradi.
+ */
+export function editRowsFor(day) {
+  const rows = (day?.sessions || []).map((x) => rowOf(x.in, x.out))
+  for (const i of day?.issues || []) {
+    if (i.type === 'unclosed_in') rows.push(rowOf(i.at, null))
+    else if (i.type === 'orphan_out') rows.push(rowOf(null, i.at))
+    else if (i.type === 'only_none' && i.at != null) rows.push(rowOf(i.at, i.last))
+  }
+  return rows.length ? rows : [rowOf(null, null)]
+}
+
+/** Muammo tavsifi (ro'yxatda ko'rsatish uchun) */
+export function issueDetail(issue) {
+  switch (issue.type) {
+    case 'unclosed_in': return `Приход ${hm(issue.at)} — Уход bosilmagan`
+    case 'orphan_out': return `Уход ${hm(issue.at)} — oldidan Приход yo'q`
+    case 'only_none': return issue.at == null ? 'Faqat «Нет» punchlar'
+      : `Faqat «Нет»: birinchi ${hm(issue.at)}, oxirgi ${hm(issue.last)} (${issue.count} ta)`
+    case 'orphan_break': return `Tanaffus punchi ${hm(issue.at)} juftlanmadi`
+    case 'short': return `1 daqiqadan qisqa juftlik (${hm(issue.at)})`
+    default: return issue.type
+  }
+}
+
+/**
+ * Berilgan turdagi muammolarni ishchi/kun bo'yicha yig'adi.
+ * @param {Array<{employee, summary}>} results  @param {Map<string, Array>} daysByEmp
+ * @returns {Array<{employee, summary, day, issue}>} ism va sana bo'yicha tartiblangan
+ */
+export function collectDayIssues(results, daysByEmp, type) {
+  const out = []
+  for (const r of results || []) {
+    for (const day of daysByEmp.get(r.employee.id) || []) {
+      for (const issue of day.issues || []) {
+        if (issue.type === type) out.push({ employee: r.employee, summary: r.summary, day, issue })
+      }
+    }
+  }
+  return out.sort((a, b) => (a.employee.name.localeCompare(b.employee.name) || (a.day.date < b.day.date ? -1 : 1)))
+}

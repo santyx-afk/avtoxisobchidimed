@@ -104,6 +104,8 @@ export function buildShifts(records, { workStart, workEnd }) {
 // ---------------------------------------------------------------------------
 const DEDUPE_SEC = 120 // bir xil holatdagi ketma-ket bosishlar shu oraliqda bitta hisoblanadi
 const MIN_MAX_SESSION = 16 * 60 // juftlik shundan uzun bo'lmaydi (yoki jadval + 4 soat)
+const DUTY_MAX_SESSION = 30 * 60 // sutkalik smena: 24 soat + 6 soat zaxira
+const NIGHT_MORNING_END = 10 * 60 // tungi smena: ertalabki 10:00 gacha bo'lgan punchlar oldingi kun smenasiga tegishli (faqat «Нет» ko'rsatish uchun)
 
 const dayNumber = (date) => {
   const [y, m, d] = date.split('-').map(Number)
@@ -132,12 +134,13 @@ export function maxSessionMinutes(workStart, workEnd) {
  *  - Уход bosilmagan Приход, Приход'siz Уход, juftlanmagan tanaffus — hisoblanmaydi, `issues` ga yoziladi;
  *  - tungi jadvalli ishchida "o'rta nuqta"dan oldingi Приход/Уход oldingi kun smenasiga tegishli.
  */
-export function buildShiftsFromPunches(punches, { workStart, workEnd }) {
+export function buildShiftsFromPunches(punches, { workStart, workEnd, duty24 = false }) {
   const night = workEnd < workStart
   const mid = (workStart + workEnd) / 2
-  const cap = maxSessionMinutes(workStart, workEnd) * 60
+  const cap = (duty24 ? DUTY_MAX_SESSION : maxSessionMinutes(workStart, workEnd)) * 60
 
-  const dates = new Map() // kalendar sana -> Приход/Уход bosilganmi
+  // Kun guruhi: kunduzgi — kalendar sana; tungi jadvalda ertalabki 10:00 gacha — oldingi kun smenasi
+  const groups = new Map() // sana -> { stateful, none: [daqiqalar (guruh sanasi 00:00 dan)] }
   const items = []
   for (const p of punches) {
     if (!p?.date) continue
@@ -145,8 +148,14 @@ export function buildShiftsFromPunches(punches, { workStart, workEnd }) {
     if (min == null) continue
     const sec = dayNumber(p.date) * 86400 + min * 60 + (parseInt(String(p.time).split(':')[2], 10) || 0)
     const stateful = p.state && p.state !== PUNCH_STATE.NONE
-    dates.set(p.date, dates.get(p.date) || !!stateful)
-    if (stateful) items.push({ sec, state: p.state, date: p.date, min })
+    const early = night && min < NIGHT_MORNING_END
+    const gDate = early ? addDays(p.date, -1) : p.date
+    if (!groups.has(gDate)) groups.set(gDate, { stateful: false, none: [] })
+    const g = groups.get(gDate)
+    if (stateful) {
+      g.stateful = true
+      items.push({ sec, state: p.state, date: p.date, min })
+    } else g.none.push(min + (early ? 1440 : 0))
   }
   items.sort((a, b) => a.sec - b.sec)
 
@@ -218,11 +227,13 @@ export function buildShiftsFromPunches(punches, { workStart, workEnd }) {
   }
   if (open) issue(open.date, DAY_ISSUE.UNCLOSED_IN, open.sec)
 
-  // Faqat «Нет» punch bo'lgan kunlar
-  for (const [date, stateful] of dates) {
-    if (stateful) continue
+  // Faqat «Нет» punch bo'lgan kunlar: shu kundagi birinchi va oxirgi punch ko'rsatiladi
+  for (const [date, g] of groups) {
+    if (g.stateful) continue
     const s = shiftOf(date)
-    if (!s.sessions.length && !s.issues.length) s.issues.push({ type: DAY_ISSUE.ONLY_NONE, at: null })
+    if (!s.sessions.length && !s.issues.length) {
+      s.issues.push({ type: DAY_ISSUE.ONLY_NONE, at: Math.min(...g.none), last: Math.max(...g.none), count: g.none.length })
+    }
   }
 
   return finalizeShifts([...shifts.values()])
@@ -287,6 +298,9 @@ function listPoints(items, max = 8) {
 export function calcEmployeeSalary({ employee, records = [], settings, advances = [], month }) {
   // Har bir ishchi uchun: work_days va override sozlamalar bo'lsa ular,
   // aks holda global sozlamalar ishlatiladi.
+  const kind = recordKind(records)
+  // Sutkalik smena (24 soat): faqat xom punchlar/juftliklar rejimida; dam olish kuni, overtime va kelmagan kun jarimasi yo'q
+  const duty = !!employee.duty_24h && kind !== 'legacy'
   const weekendDays = employeeRestDays(employee, settings)
   const grace = numOr(employee.grace_period_min, settings.grace_period_min)
   const penaltyPerMin = numOr(employee.late_penalty_per_min, settings.late_penalty_per_min)
@@ -294,8 +308,7 @@ export function calcEmployeeSalary({ employee, records = [], settings, advances 
   const weMult = numOr(employee.weekend_multiplier, settings.weekend_multiplier) || 1
 
   const workStart = timeToMinutes(employee.work_start) ?? 480
-  const workEnd = timeToMinutes(employee.work_end) ?? 1020
-  const kind = recordKind(records)
+  const workEnd = duty ? workStart : (timeToMinutes(employee.work_end) ?? 1020) // sutkalik: tugash = boshlanish + 24 soat
   // Xom punchlar/juftliklar rejimida tushlik ayrilmaydi (haqiqiy ishlangan vaqt hisoblanadi)
   const lunch = kind === 'legacy' ? Number(employee.lunch_minutes ?? 60) : 0
   // Tungi smena: tugash boshlanishdan kichik bo'lsa (masalan 22:00-06:00) — keyingi kunga o'tadi
@@ -305,11 +318,11 @@ export function calcEmployeeSalary({ employee, records = [], settings, advances 
 
   // Bayram kunlari — jarima qilinmaydi (haq to'lanadi), dam kuni kabi ishlanadi
   const holidaySet = new Set(settings.holidays || [])
-  const isRestDay = (dateStr) => weekendDays.includes(weekdayOfDate(dateStr)) || holidaySet.has(dateStr)
+  const isRestDay = (dateStr) => !duty && (weekendDays.includes(weekdayOfDate(dateStr)) || holidaySet.has(dateStr))
 
   // Smenalar — faqat shu oy (fayldagi boshqa oy yozuvlari hisobga olinmaydi)
   const allShifts = kind === 'punches'
-    ? buildShiftsFromPunches(records, { workStart, workEnd })
+    ? buildShiftsFromPunches(records, { workStart, workEnd, duty24: duty })
     : kind === 'sessions' ? shiftsFromSessions(records) : buildShifts(records, { workStart, workEnd })
   const shifts = allShifts.filter((s) => s.date.startsWith(`${month}-`))
 
@@ -318,13 +331,18 @@ export function calcEmployeeSalary({ employee, records = [], settings, advances 
   const totalDays = daysInMonth(month)
   let workingDaysPresent = 0
   const absentDates = []
-  for (let d = 1; d <= totalDays; d++) {
-    const dateStr = `${month}-${String(d).padStart(2, '0')}`
-    if (isRestDay(dateStr)) continue // dam olish yoki bayram — kutilgan ish kuni emas
-    if (shiftByDate.get(dateStr)?.inMin != null) workingDaysPresent++
-    else absentDates.push(dateStr)
+  if (duty) {
+    workingDaysPresent = shifts.filter((s) => s.inMin != null).length
+  } else {
+    for (let d = 1; d <= totalDays; d++) {
+      const dateStr = `${month}-${String(d).padStart(2, '0')}`
+      if (isRestDay(dateStr)) continue // dam olish yoki bayram — kutilgan ish kuni emas
+      if (shiftByDate.get(dateStr)?.inMin != null) workingDaysPresent++
+      else absentDates.push(dateStr)
+    }
   }
-  const expected = workingDaysPresent + absentDates.length
+  // sutkalik: kutilgan sutkalar soni ishchi sozlamasidan (kelmagan kun jarimasi yo'q)
+  const expected = duty ? (Number(employee.duty_days) || 10) : workingDaysPresent + absentDates.length
 
   // --- Kunlik hisob (attendance + soatlar) ---
   const days = []
@@ -351,7 +369,7 @@ export function calcEmployeeSalary({ employee, records = [], settings, advances 
         worked = s.sessions.reduce((sum, x) => sum + (x.out - x.in), 0)
         if (!isWeekend) {
           late = Math.max(0, inMin - workStart - grace)
-          ot = Math.min(Math.max(0, outMin - workEndAdj), Math.max(0, worked - scheduledMinutes))
+          ot = duty ? 0 : Math.min(Math.max(0, outMin - workEndAdj), Math.max(0, worked - scheduledMinutes))
         }
       }
     } else if (inMin != null) {
@@ -476,9 +494,10 @@ export function calcEmployeeSalary({ employee, records = [], settings, advances 
   if (incompleteDays.length > 0) {
     notes.push(`${incompleteDays.length} kun faqat bitta punch (kirish yoki chiqish yo'q) — to'liq kun hisoblandi, tekshiring (${incompleteDays.map(formatDateShort).join(', ')})`)
   }
+  if (duty) notes.unshift(`Sutkalik smena: ${workingDaysPresent} sutka ishladi (kutilgan ${expected})`)
   if (kind !== 'legacy') {
     const by = (type) => days.flatMap((d) => (d.issues || []).filter((i) => i.type === type).map((i) => ({ d, i })))
-    const at = ({ d, i }) => `${formatDateShort(d.date)}${i.at != null ? ` ${clock(i.at)}` : ''}`
+    const at = ({ d, i }) => `${formatDateShort(d.date)}${i.at != null ? ` ${clock(i.at)}${i.last != null && i.last !== i.at ? `–${clock(i.last)}` : ''}` : ''}`
     const unclosed = by(DAY_ISSUE.UNCLOSED_IN)
     if (unclosed.length) notes.push(`Ketaman bosilmagan (Приход bor, Уход yo'q) — juftlik hisoblanmadi: ${listPoints(unclosed.map(at))}`)
     const orphan = by(DAY_ISSUE.ORPHAN_OUT)
@@ -518,4 +537,21 @@ export function calcEmployeeSalary({ employee, records = [], settings, advances 
   }
 
   return { summary, days }
+}
+
+/** Kunlik muammolar bo'yicha ogohlantirishlar: [{ type, count, text }] (UI da bosib ko'riladi) */
+export function dayIssueSummary(days, statefulDates = []) {
+  const c = summarizeDayIssues(days)
+  const out = []
+  if (c.unclosed > 0) out.push({ type: DAY_ISSUE.UNCLOSED_IN, count: c.unclosed, text: `${c.unclosed} ta yopilmagan juftlik (Приход bor, Уход bosilmagan) — hisoblanmadi.` })
+  if (c.onlyNone > 0) {
+    const d = statefulDates || []
+    const range = d.length
+      ? ` Приход/Уход belgilangan kunlar: ${d.length === 1 ? formatDateShort(d[0]) : `${formatDateShort(d[0])}–${formatDateShort(d[d.length - 1])}`}.`
+      : ''
+    out.push({ type: DAY_ISSUE.ONLY_NONE, count: c.onlyNone, text: `${c.onlyNone} ta xodim-kun faqat «Нет» punchlardan iborat — kelmagan hisoblandi.${range}` })
+  }
+  if (c.orphanOut > 0) out.push({ type: DAY_ISSUE.ORPHAN_OUT, count: c.orphanOut, text: `${c.orphanOut} ta Уход oldidan Приход yo'q — hisoblanmadi.` })
+  if (c.orphanBreak > 0) out.push({ type: DAY_ISSUE.ORPHAN_BREAK, count: c.orphanBreak, text: `${c.orphanBreak} ta tanaffus punchi juftlanmadi — tanaffus ayrilmadi.` })
+  return out
 }
