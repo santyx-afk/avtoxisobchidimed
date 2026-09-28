@@ -2,8 +2,12 @@ import { Printer } from 'lucide-react'
 import { Modal } from './ui'
 import DataTable from './DataTable'
 import { formatSom, formatSigned, shortTime, minutesToHm, minutesToHours } from '../lib/format'
-import { CALC_TYPE_LABEL } from '../lib/constants'
+import { CALC_TYPE_LABEL, DAY_ISSUE_LABEL } from '../lib/constants'
 import { printPayslip } from '../lib/payslip'
+
+const hm = (min) => `${String(Math.floor((min % 1440) / 60)).padStart(2, '0')}:${String(min % 60).padStart(2, '0')}`
+/** Juftliklar: "08:02–13:10, 14:00–18:05" */
+export const formatSessions = (sessions) => (sessions || []).map((x) => `${hm(x.in)}–${hm(x.out)}`).join(', ')
 
 /** Bitta ishchining oylik natijasi: farq sabablari + kunlik breakdown */
 export default function SalaryDetail({ open, onClose, employee, summary, days = [], month }) {
@@ -20,6 +24,7 @@ export default function SalaryDetail({ open, onClose, employee, summary, days = 
 
   const noteLines = (summary.notes || '').split('\n').filter(Boolean)
 
+  const hasSessions = days.some((d) => Array.isArray(d.sessions))
   const dayColumns = [
     { key: 'date', header: 'Sana', render: (d) => <span className="tabular">{d.date?.slice(8)}.{d.date?.slice(5, 7)}</span> },
     { key: 'day_of_week', header: 'Kun', render: (d) => (
@@ -27,6 +32,17 @@ export default function SalaryDetail({ open, onClose, employee, summary, days = 
     ) },
     { key: 'check_in', header: 'Kirish', align: 'center', render: (d) => <span className="tabular">{shortTime(d.check_in)}</span> },
     { key: 'check_out', header: 'Chiqish', align: 'center', render: (d) => <span className="tabular">{shortTime(d.check_out)}</span> },
+    ...(hasSessions ? [{
+      key: 'sessions', header: 'Juftliklar', sortable: false,
+      render: (d) => (
+        <div>
+          <span className="tabular">{formatSessions(d.sessions) || '—'}</span>
+          {(d.issues || []).map((i, k) => (
+            <span key={k} className="badge-amber ml-1">{DAY_ISSUE_LABEL[i.type] || i.type}{i.at != null && i.type !== 'only_none' ? ` ${hm(i.at)}` : ''}</span>
+          ))}
+        </div>
+      ),
+    }] : []),
     { key: 'worked_minutes', header: 'Ishlagan', align: 'right', render: (d) => <span className="tabular">{d.worked_minutes ? minutesToHm(d.worked_minutes) : '—'}</span> },
     { key: 'late_minutes', header: 'Kech', align: 'right', render: (d) => (d.late_minutes > 0 ? <span className="tabular text-red-500">{d.late_minutes}d</span> : <span className="text-slate-300">—</span>) },
     { key: 'overtime_minutes', header: 'Overtime', align: 'right', render: (d) => (d.overtime_minutes > 0 ? <span className="tabular text-emerald-500">{minutesToHm(d.overtime_minutes)}</span> : <span className="text-slate-300">—</span>) },

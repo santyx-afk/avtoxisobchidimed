@@ -7,7 +7,7 @@ import { PageHeader, StatCard, EmptyState, PageLoader } from '../components/ui'
 import DataTable from '../components/DataTable'
 import SalaryDetail from '../components/SalaryDetail'
 import { formatSom, formatSigned, formatMonth, formatDateTime } from '../lib/format'
-import { CALC_TYPE_LABEL, REPORT_SOURCE_LABEL } from '../lib/constants'
+import { CALC_TYPE_LABEL, REPORT_SOURCE_LABEL, IVMS_FORMAT_LABEL } from '../lib/constants'
 import {
   processIvmsFile, computeReport, saveReport, recalculateMonth, loadAdvancesByEmployee, rememberPersonIds,
 } from '../lib/runCalculation'
@@ -96,6 +96,9 @@ export default function Calculate() {
       unmatched: result.unmatched || [], // avtomatik qo'shish uchun: { name, personId, records }
       missingEmployees: result.missingEmployees,
       warnings: result.warnings || [],
+      fileInfo: result.parsed
+        ? { format: result.parsed.format, records: result.parsed.records.length, people: result.parsed.meta.names.length }
+        : result.fileInfo || null,
       parsedRecords, // avtomatik qo'shish uchun xom yozuvlar (yuklashdan keyin)
     }
   }
@@ -161,7 +164,7 @@ export default function Calculate() {
         settings: st,
       })
       await rememberPersonIds(computed.learnedPersonIds)
-      setView(buildView({ ...computed, report, month: view.month, warnings: view.warnings }, view.parsedRecords))
+      setView(buildView({ ...computed, report, month: view.month, warnings: view.warnings, fileInfo: view.fileInfo }, view.parsedRecords))
       setAddedMsg(`${payloads.length} ta ishchi qo'shildi. Endi "Ishchilar" sahifasida ularning oylik summasi va turini kiriting, so'ng shu yerda "Qayta hisoblash" tugmasini bosing.`)
     } catch (err) {
       setError(err.message || "Ishchilarni qo'shishda xatolik")
@@ -252,7 +255,7 @@ export default function Calculate() {
             {busy ? 'Qayta ishlanmoqda…' : 'IVMS faylni bu yerga tashlang'}
           </p>
           <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-            Hikvision IVMS-4200 "Punch Report" (.xls / .html)
+            Hikvision IVMS-4200 "Punch Report" yoki "Отчет об исходных записях" (.xls / .html)
           </p>
         </div>
         <button onClick={() => fileRef.current?.click()} className="btn-primary" disabled={busy}>
@@ -284,6 +287,12 @@ export default function Calculate() {
             <span className="text-slate-500 dark:text-slate-400">Fayl: {view.report?.file_name || '—'}</span>
             <span className="text-slate-500 dark:text-slate-400">Yuklangan: {formatDateTime(view.report?.uploaded_at)}</span>
             <span className="badge-slate">{REPORT_SOURCE_LABEL[view.report?.source] || '—'}</span>
+            {view.fileInfo?.format && (
+              <span className="text-slate-500 dark:text-slate-400">
+                Format: {IVMS_FORMAT_LABEL[view.fileInfo.format]}
+                {view.fileInfo.records != null && ` · ${view.fileInfo.records} ta yozuv · ${view.fileInfo.people} ta xodim`}
+              </span>
+            )}
             {locked && <span className="badge-amber"><Lock className="h-3 w-3" /> Qulflangan</span>}
             <div className="ml-auto flex items-center gap-2">
               <button onClick={toggleLock} className="btn-secondary btn-sm" title={locked ? 'Oyni ochish' : 'Oyni yopish (o\'zgarishlardan himoya)'}>
