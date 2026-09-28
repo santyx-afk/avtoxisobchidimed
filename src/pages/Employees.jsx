@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react'
-import { Plus, Pencil, Trash2, AlertCircle, ChevronDown, ClipboardPaste, CheckCircle2 } from 'lucide-react'
+import { Plus, Pencil, Trash2, AlertCircle, ChevronDown, ClipboardPaste, CheckCircle2, Users } from 'lucide-react'
 import { PageHeader, PageLoader, Modal, ConfirmDialog, Field, MoneyInput, Toggle } from '../components/ui'
 import DataTable from '../components/DataTable'
 import { formatSom, shortTime, WEEKDAY_SHORT_UZ } from '../lib/format'
 import { CALC_TYPE_LABEL } from '../lib/constants'
+import RateGroups from '../components/RateGroups'
 import { parseBulkSalary, matchBulkSalary } from '../lib/bulkImport'
 import * as db from '../lib/db'
 
@@ -14,7 +15,7 @@ const emptyForm = {
   name: '', ivms_person_id: '', calc_type: 'fix', monthly_salary: '', hourly_rate: '', daily_rate: '',
   work_start: '08:00', work_end: '17:00', lunch_minutes: 60,
   department: 'Dimed', position: '', is_active: true,
-  duty_24h: false, duty_days: 10, // sutkalik smena (24 soat) va oyiga kutilgan sutkalar soni
+  duty_24h: false, two_shifts: false, duty_days: 10, // sutkalik smena (24 soat) va oyiga kutilgan sutkalar soni
   work_days: null, // null = umumiy sozlama; array = individual ish kunlari
   grace_period_min: '', late_penalty_per_min: '',
   overtime_multiplier: '', weekend_multiplier: '',
@@ -35,6 +36,8 @@ export default function Employees() {
   const [deleteTarget, setDeleteTarget] = useState(null)
   const [filter, setFilter] = useState('all')
   const [bulkOpen, setBulkOpen] = useState(false)
+  const [groupsOpen, setGroupsOpen] = useState(false)
+  const [savedGroups, setSavedGroups] = useState([])
   const [notice, setNotice] = useState('')
 
   async function reload() {
@@ -168,6 +171,9 @@ export default function Employees() {
   return (
     <div>
       <PageHeader title="Ishchilar" subtitle={`${employees.length} ta ishchi`}>
+        <button onClick={async () => { try { setSavedGroups((await db.getSettings()).rate_groups || []) } catch { /* standart guruhlar */ } setGroupsOpen(true) }} className="btn-secondary">
+          <Users className="h-4 w-4" /> Guruh stavkalari
+        </button>
         <button onClick={() => setBulkOpen(true)} className="btn-secondary">
           <ClipboardPaste className="h-4 w-4" /> Ommaviy oylik
         </button>
@@ -217,6 +223,15 @@ export default function Employees() {
         />
       )}
 
+      {groupsOpen && (
+        <RateGroups
+          employees={employees}
+          savedGroups={savedGroups}
+          onClose={() => setGroupsOpen(false)}
+          onSaved={(n) => { setGroupsOpen(false); setNotice(`Guruh stavkalari saqlandi${n ? `, ${n} ta xodim oyligi yangilandi` : ''}.`); reload() }}
+        />
+      )}
+
       {bulkOpen && (
         <BulkSalaryModal
           employees={employees}
@@ -251,6 +266,7 @@ function EmployeeForm({ employee, onClose, onSaved }) {
           daily_rate: employee.daily_rate ?? '',
           work_days: Array.isArray(employee.work_days) ? employee.work_days : null,
           duty_24h: !!employee.duty_24h,
+          two_shifts: !!employee.two_shifts,
           duty_days: employee.duty_days ?? 10,
           grace_period_min: employee.grace_period_min ?? '',
           late_penalty_per_min: employee.late_penalty_per_min ?? '',
@@ -284,8 +300,9 @@ function EmployeeForm({ employee, onClose, onSaved }) {
     if (form.calc_type === 'fix' && !form.monthly_salary) return setError('Fix oylik uchun oylik summa kiriting')
     if (form.calc_type === 'hourly') return setError('Soatbay hisoblash ishlatilmaydi — Fix oylik yoki Kunbay tanlang')
     if (form.calc_type === 'daily' && !form.daily_rate) return setError('Kunbay uchun kunlik summani kiriting')
-    if (form.duty_24h && !(Number(form.duty_days) > 0)) return setError('Sutkalik smena uchun oyiga kutilgan sutkalar sonini kiriting')
-    if (!form.duty_24h && form.work_end === form.work_start) return setError("Ish boshlanishi va tugashi bir xil bo'lmasin")
+    const shiftBased = form.duty_24h || form.two_shifts
+    if (shiftBased && !(Number(form.duty_days) > 0)) return setError('Smenalar bo\'yicha hisoblash uchun oyiga kutilgan smenalar sonini kiriting')
+    if (!shiftBased && form.work_end === form.work_start) return setError("Ish boshlanishi va tugashi bir xil bo'lmasin")
     // Eslatma: tugash < boshlanish bo'lsa — tungi smena (yarim tundan o'tadi), bu ruxsat etiladi
 
     const payload = {
@@ -295,7 +312,7 @@ function EmployeeForm({ employee, onClose, onSaved }) {
       hourly_rate: form.calc_type === 'hourly' ? Number(form.hourly_rate) : null,
       daily_rate: form.calc_type === 'daily' ? Number(form.daily_rate) : null,
       work_start: form.work_start,
-      work_end: form.duty_24h ? form.work_start : form.work_end, // sutkalik: tugash = boshlanish + 24 soat
+      work_end: shiftBased ? form.work_start : form.work_end, // sutkalik: tugash = boshlanish + 24 soat
       lunch_minutes: Number(form.lunch_minutes) || 0,
       department: form.department?.trim() || null,
       position: form.position?.trim() || null,
@@ -310,9 +327,10 @@ function EmployeeForm({ employee, onClose, onSaved }) {
     // IVMS ID — bo'sh bo'lsa ism bo'yicha moslanadi. Kalit faqat kerak bo'lganda yuboriladi
     // (sxema hali yangilanmagan bazada ham ishchini saqlash ishlashi uchun)
     // Sutkalik smena kalitlari ham faqat kerak bo'lganda (sxema yangilanmagan bazada ishchi saqlash ishlashi uchun)
-    if (form.duty_24h || employee?.duty_24h) {
+    if (shiftBased || employee?.duty_24h || employee?.two_shifts) {
       payload.duty_24h = !!form.duty_24h
-      payload.duty_days = form.duty_24h ? Number(form.duty_days) : null
+      payload.two_shifts = !!form.two_shifts
+      payload.duty_days = shiftBased ? Number(form.duty_days) : null
     }
     const pid = String(form.ivms_person_id ?? '').trim()
     if (pid || employee?.ivms_person_id) payload.ivms_person_id = pid || null
@@ -374,7 +392,7 @@ function EmployeeForm({ employee, onClose, onSaved }) {
           <Field label="Ish boshlanishi">
             <input type="time" className="input" value={form.work_start} onChange={(e) => set('work_start', e.target.value)} />
           </Field>
-          {!form.duty_24h && (
+          {!form.duty_24h && !form.two_shifts && (
             <>
               <Field label="Ish tugashi">
                 <input type="time" className="input" value={form.work_end} onChange={(e) => set('work_end', e.target.value)} />
@@ -384,8 +402,8 @@ function EmployeeForm({ employee, onClose, onSaved }) {
               </Field>
             </>
           )}
-          {form.duty_24h && (
-            <Field label="Oyiga sutkalar soni" hint="Kutilgan sutkalar; oylik shunga bo'linadi" required>
+          {(form.duty_24h || form.two_shifts) && (
+            <Field label="Oyiga smenalar soni" hint="Kutilgan smenalar (sutkalar); oylik shunga bo'linadi" required>
               <input type="number" min="1" className="input" value={form.duty_days} onChange={(e) => set('duty_days', e.target.value)} />
             </Field>
           )}
@@ -398,7 +416,18 @@ function EmployeeForm({ employee, onClose, onSaved }) {
                 Приход {form.work_start} da, Уход ertasi kuni. Bir sutka = bitta smena; dam olish kuni, overtime va kelmagan kun jarimasi hisoblanmaydi.
               </p>
             </div>
-            <Toggle checked={!!form.duty_24h} onChange={(v) => set('duty_24h', v)} />
+            <Toggle checked={!!form.duty_24h} onChange={(v) => setForm((f) => ({ ...f, duty_24h: v, two_shifts: v ? false : f.two_shifts }))} />
+          </div>
+        </div>
+        <div className="rounded-xl border border-slate-200 p-3 dark:border-slate-700">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">Ikki xil smena (kunduzi / kechasi)</p>
+              <p className="text-xs text-slate-400">
+                Jadval hisobga olinmaydi, faqat Приход/Уход: Приход bugun 17:00, Уход ertasi 08:20 bo'lsa ham bitta smena (Приход sanasiga). Kechikish va overtime yo'q.
+              </p>
+            </div>
+            <Toggle checked={!!form.two_shifts} onChange={(v) => setForm((f) => ({ ...f, two_shifts: v, duty_24h: v ? false : f.duty_24h }))} />
           </div>
         </div>
         {form.work_end < form.work_start && (
