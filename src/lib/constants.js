@@ -61,6 +61,7 @@ export const DAY_ISSUE = {
   ORPHAN_BREAK: 'orphan_break', // juftlanmagan tanaffus punchi
   ONLY_NONE: 'only_none', // kunda faqat «Нет» punchlar
   SHORT: 'short', // 1 daqiqadan qisqa juftlik
+  MANUAL: 'manual', // kun qo'lda tuzatilgan
 }
 
 export const DAY_ISSUE_LABEL = {
@@ -69,4 +70,5 @@ export const DAY_ISSUE_LABEL = {
   orphan_break: 'Tanaffus juftlanmadi',
   only_none: 'Faqat «Нет»',
   short: 'Juda qisqa juftlik',
+  manual: "Qo'lda tuzatilgan",
 }

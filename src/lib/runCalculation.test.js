@@ -216,6 +216,43 @@ describe('xom format (Приход / Уход): saqlash, qayta hisoblash, ogohla
   })
 })
 
+describe("qo'lda tuzatish (dayOverrides)", () => {
+  const M = '2099-11' // 2099-11-05 — Payshanba
+  it("yopilmagan kunni tuzatish: kun hisoblanadi, izoh «Ketaman bosilmagan» o'rniga «Qo'lda tuzatilgan»", async () => {
+    const e = await db.createEmployee({
+      name: 'Tuzatish Ishchi', ivms_person_id: '950', calc_type: 'hourly', hourly_rate: 60000, work_start: '08:00', work_end: '17:00', lunch_minutes: 60,
+    })
+    const s = await db.getSettings()
+    const parsed = parseIvmsHtml(rawHtml([
+      ['950', 'Tuzatish Ishchi', `${M}-05 08:00:00`, 'in'], ['950', 'Tuzatish Ishchi', `${M}-05 17:00:00`, 'out'],
+      ['950', 'Tuzatish Ishchi', `${M}-06 08:00:00`, 'in'], // Уход bosilmagan
+    ].map((r) => r)))
+    const computed = computeReport({ records: parsed.records, month: M, employees: [e], settings: s })
+    await saveReport({ month: M, fileName: 'x.xls', source: 'manual', allDays: computed.allDays, allSummaries: computed.allSummaries, settings: s })
+    const calc = async () => (await db.getCalculationsByMonth(M)).find((c) => c.employee_id === e.id)
+    expect((await calc()).work_days).toBe(1)
+    expect((await calc()).notes).toContain('Ketaman bosilmagan')
+
+    await recalculateMonth(M, { dayOverrides: [{ employeeId: e.id, date: `${M}-06`, sessions: [{ in: 480, out: 1020 }] }] })
+    const after = await calc()
+    expect(after.work_days).toBe(2)
+    expect(after.total_hours).toBe(18)
+    expect(after.notes).not.toContain('Ketaman bosilmagan')
+    expect(after.notes).toContain("Qo'lda tuzatilgan kunlar: 06.11")
+
+    // keyingi qayta hisoblash (masalan avans) tuzatishni saqlaydi
+    await recalculateMonth(M)
+    expect((await calc()).work_days).toBe(2)
+
+    // yangi kun qo'shish va kunni «kelmagan» qilish
+    await recalculateMonth(M, { dayOverrides: [
+      { employeeId: e.id, date: `${M}-07`, sessions: [{ in: 480, out: 720 }] },
+      { employeeId: e.id, date: `${M}-05`, sessions: [] },
+    ] })
+    expect((await calc()).total_hours).toBe(9 + 4) // 06-kun 08:00–17:00 (9 soat) + 07-kun 4 soat
+  })
+})
+
 describe('anonim fixture (haqiqiy fayldan 4 xodim) — oxirigacha hisoblash', () => {
   const html = readFileSync(resolve(process.cwd(), 'src/lib/__fixtures__/ivms_raw_anon.xls'), 'utf8')
   const parsed = parseIvmsHtml(html)
