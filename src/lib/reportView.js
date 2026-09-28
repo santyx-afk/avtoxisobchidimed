@@ -1,5 +1,7 @@
 // Saqlangan oy hisobotini ko'rish uchun yordamchi (Calculate, History, Ratings)
 import * as db from './db'
+import { dayIssueWarnings } from './runCalculation'
+import { IVMS_FORMAT } from './constants'
 
 /**
  * Berilgan oy uchun to'liq natijani yuklaydi (yoki oxirgisini).
@@ -34,7 +36,13 @@ export async function loadMonthView(month) {
   const haveCalc = new Set(calcs.map((c) => c.employee_id))
   const missingEmployees = employees.filter((e) => e.is_active && !haveCalc.has(e.id)).map((e) => e.name)
 
-  return { month: report.month, report, results, daysByEmp, missingEmployees, unmatchedNames: [] }
+  // xom format oyi: kunlarda saqlangan juftliklar bor
+  const isRaw = attendance.some((a) => Array.isArray(a.sessions))
+  return {
+    month: report.month, report, results, daysByEmp, missingEmployees, unmatchedNames: [],
+    fileInfo: { format: isRaw ? IVMS_FORMAT.RAW_RECORDS : IVMS_FORMAT.PUNCH_REPORT },
+    warnings: isRaw ? dayIssueWarnings(attendance) : [],
+  }
 }
 
 /** Natijalar ro'yxatidan oylik yig'indi */

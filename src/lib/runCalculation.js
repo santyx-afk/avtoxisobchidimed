@@ -1,6 +1,8 @@
 // IVMS hisobotini qayta ishlash: parse -> ishchilarni moslashtirish -> hisoblash -> saqlash
 import { parseIvmsHtml, normalizeName } from './ivmsParser'
-import { calcEmployeeSalary } from './salaryCalc'
+import { calcEmployeeSalary, summarizeDayIssues } from './salaryCalc'
+import { IVMS_FORMAT } from './constants'
+import { formatDateShort } from './format'
 import { isMonthLocked, assertMonthUnlocked } from './monthLock'
 import * as db from './db'
 
@@ -58,29 +60,37 @@ export async function recalculateMonth(month, { useCurrent = false } = {}) {
       firstIn: a.check_in,
       lastOut: a.check_out,
       anchored: true,
+      // xom format: saqlangan juftliklar (null — eski Punch Report qatori)
+      ...(Array.isArray(a.sessions) ? { sessions: a.sessions, issues: a.issues || [] } : {}),
     })
   }
+  const sessionMode = attendance.some((a) => Array.isArray(a.sessions))
   const prevByEmp = new Map(existing.map((c) => [c.employee_id, c]))
   const useSnapshot = !useCurrent && report.settings_snapshot
   const settings = useSnapshot ? { ...currentSettings, ...report.settings_snapshot } : currentSettings
 
   const summaries = []
+  const dayRows = []
   for (const employee of employees) {
     const prev = prevByEmp.get(employee.id)
     // Faylda yozuvi bor yoki avval hisoblangan (faylda yo'q, "kelmagan") ishchilar
     if (!byEmp.has(employee.id) && !prev) continue
     const emp = !useCurrent && prev?.employee_snapshot ? { ...employee, ...prev.employee_snapshot } : employee
-    const { summary } = calcEmployeeSalary({
+    const { summary, days } = calcEmployeeSalary({
       employee: emp,
       records: byEmp.get(employee.id) || [],
       settings,
       advances: advancesByEmployee.get(employee.id) || [],
       month,
     })
+    dayRows.push(...days)
     summaries.push({ ...summary, employee_snapshot: employeeTerms(emp) })
   }
   // Snapshot yo'q (eski) hisobotga yoki yangi shartlar qo'llanganda — sozlamalar nusxasi yoziladi
-  await db.replaceCalculationsForReport(report.id, summaries, useSnapshot ? null : settingsTerms(settings))
+  // Juftliklar rejimida kunlik qatorlar (kechikish/overtime) ham qayta yoziladi
+  await db.replaceCalculationsForReport(
+    report.id, summaries, useSnapshot ? null : settingsTerms(settings), sessionMode ? dayRows : null,
+  )
   return true
 }
 
@@ -184,6 +194,23 @@ export async function rememberPersonIds(learned) {
   }
 }
 
+/** Xom format: kunlik izohlar (yopilmagan juftliklar, faqat «Нет» kunlar...) bo'yicha ogohlantirishlar */
+export function dayIssueWarnings(days, statefulDates = []) {
+  const warnings = []
+  const c = summarizeDayIssues(days)
+  if (c.unclosed > 0) warnings.push(`${c.unclosed} ta yopilmagan juftlik (Приход bor, Уход bosilmagan) — hisoblanmadi.`)
+  if (c.onlyNone > 0) {
+    const d = statefulDates || []
+    const range = d.length
+      ? ` Приход/Уход belgilangan kunlar: ${d.length === 1 ? formatDateShort(d[0]) : `${formatDateShort(d[0])}–${formatDateShort(d[d.length - 1])}`}.`
+      : ''
+    warnings.push(`${c.onlyNone} ta xodim-kun faqat «Нет» punchlardan iborat — kelmagan hisoblandi.${range}`)
+  }
+  if (c.orphanOut > 0) warnings.push(`${c.orphanOut} ta Уход oldidan Приход yo'q — hisoblanmadi.`)
+  if (c.orphanBreak > 0) warnings.push(`${c.orphanBreak} ta tanaffus punchi juftlanmadi — tanaffus ayrilmadi.`)
+  return warnings
+}
+
 /** Foydalanuvchiga ko'rsatiladigan ogohlantirishlar */
 export function reportWarnings(parsed, computed) {
   const warnings = []
@@ -191,6 +218,10 @@ export function reportWarnings(parsed, computed) {
   if (other.length) {
     const list = other.map(([m, n]) => `${m}: ${n} ta`).join(', ')
     warnings.push(`Faylda boshqa oy yozuvlari ham bor (${list}) — faqat ${parsed.month} hisoblandi.`)
+  }
+  if (parsed?.format === IVMS_FORMAT.RAW_RECORDS) {
+    warnings.push(...dayIssueWarnings(computed?.allDays, parsed.meta.statefulDates))
+    if (parsed.meta.unknownStates > 0) warnings.push(`${parsed.meta.unknownStates} ta punchning holati tanilmadi — «Нет» deb olindi.`)
   }
   if (parsed?.meta?.skipped > 0) {
     warnings.push(`Faylda ${parsed.meta.skipped} ta tanilmagan qator o'tkazib yuborildi (begona matn yoki buzilgan qator) — natijani tekshiring.`)
@@ -221,7 +252,7 @@ export async function saveReport({ month, fileName, source, allDays, allSummarie
 export async function processIvmsFile({ html, fileName, source = 'manual', expectedMonth = null }) {
   const parsed = parseIvmsHtml(html)
   if (!parsed.month) {
-    throw new Error("Fayldan oy (sana) aniqlanmadi. IVMS 'Punch Report' formatini tekshiring.")
+    throw new Error("Fayldan oy (sana) aniqlanmadi. IVMS 'Punch Report' yoki 'Отчет об исходных записях' formatini tekshiring.")
   }
   if (parsed.records.length === 0) {
     throw new Error("Faylda hech qanday yozuv topilmadi. Format noto'g'ri bo'lishi mumkin.")

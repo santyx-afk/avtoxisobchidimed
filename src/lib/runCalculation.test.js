@@ -1,6 +1,10 @@
 import { describe, it, expect } from 'vitest'
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { computeReport, saveReport, recalculateMonth, reportWarnings } from './runCalculation'
 import { setMonthLocked } from './monthLock'
+import { parseIvmsHtml } from './ivmsParser'
+import { rawHtml } from './__fixtures__/rawHtml'
 import * as db from './db'
 
 const settings = {
@@ -149,5 +153,99 @@ describe('reportWarnings', () => {
   it("tanilmagan qatorlar haqida ogohlantiradi", () => {
     const parsed = { month: '2026-08', meta: { skipped: 2, monthCounts: { '2026-08': 10 } } }
     expect(reportWarnings(parsed, {}).join(' ')).toContain('2 ta tanilmagan qator')
+  })
+})
+
+describe('xom format (Приход / Уход): saqlash, qayta hisoblash, ogohlantirishlar', () => {
+  const M = '2099-10' // 2099-10-05 — Payshanba
+  const punches = (name, id) => [
+    [id, name, `${M}-05 08:00:00`, 'in'], [id, name, `${M}-05 12:00:00`, 'out'],
+    [id, name, `${M}-05 13:00:00`, 'in'], [id, name, `${M}-05 17:00:00`, 'out'],
+    [id, name, `${M}-06 08:00:00`, 'in'], // Уход bosilmagan
+    [id, name, `${M}-07 09:00:00`, 'none'], // faqat «Нет»
+  ]
+  const setup = async (name, id) => {
+    const e = await db.createEmployee({
+      name, ivms_person_id: id, calc_type: 'hourly', hourly_rate: 60000, work_start: '08:00', work_end: '17:00', lunch_minutes: 60,
+    })
+    const s = await db.getSettings()
+    const parsed = parseIvmsHtml(rawHtml(punches(name, id)))
+    const computed = computeReport({ records: parsed.records, month: M, employees: [e], settings: s })
+    return { e, s, parsed, computed }
+  }
+  const calcOf = async (id) => (await db.getCalculationsByMonth(M)).find((c) => c.employee_id === id)
+
+  it('hisoblaydi: haqiqiy daqiqalar, kunlik qatorlarda sessions/issues', async () => {
+    const { computed } = await setup('Xom Ishchi', '901')
+    const { summary } = computed.results[0]
+    expect(summary.work_days).toBe(1)
+    expect(summary.total_hours).toBe(8) // 12:00 − 08:00 + 17:00 − 13:00, tushlik ayrilmaydi
+    expect(computed.allDays.find((d) => d.date === `${M}-05`).sessions).toHaveLength(2)
+    expect(summary.notes).toContain('Ketaman bosilmagan')
+  })
+
+  it("ogohlantirishlar: yopilmagan juftliklar va faqat «Нет» kunlar soni", async () => {
+    const { parsed, computed } = await setup('Ogoh Ishchi', '902')
+    const text = reportWarnings(parsed, computed).join(' | ')
+    expect(text).toContain('1 ta yopilmagan juftlik')
+    expect(text).toContain('1 ta xodim-kun faqat «Нет»')
+  })
+
+  it("saqlangan juftliklardan qayta hisoblash: avans o'zgarsa ham, hozirgi shartlar bilan ham", async () => {
+    const { e, s, computed } = await setup('Qayta Ishchi', '903')
+    await saveReport({
+      month: M, fileName: 'raw.xls', source: 'manual', allDays: computed.allDays, allSummaries: computed.allSummaries, settings: s,
+    })
+    const saved = (await db.getAttendanceByReport((await db.getReportByMonth(M)).id)).find((a) => a.date === `${M}-05`)
+    expect(saved.sessions).toEqual([{ in: 480, out: 720 }, { in: 780, out: 1020 }])
+
+    const before = await calcOf(e.id)
+    await db.createAdvance({ employee_id: e.id, amount: 100000, date: `${M}-10`, reason: 'x', month: M })
+    await recalculateMonth(M) // snapshot shartlari + avans
+    const afterAdvance = await calcOf(e.id)
+    expect(afterAdvance.net_salary).toBe(before.net_salary - 100000)
+    expect(afterAdvance.total_hours).toBe(before.total_hours)
+    expect(afterAdvance.notes).toContain('Ketaman bosilmagan') // izohlar saqlangan issues dan
+
+    await db.updateEmployee(e.id, { hourly_rate: 90000 })
+    await recalculateMonth(M, { useCurrent: true })
+    expect((await calcOf(e.id)).calculated_salary).toBe(8 * 90000)
+    // kunlik qatorlar ham yangilandi va juftliklar saqlanib qoldi
+    const rows = await db.getAttendanceByReport((await db.getReportByMonth(M)).id)
+    expect(rows.find((a) => a.date === `${M}-05`).sessions).toHaveLength(2)
+  })
+})
+
+describe('anonim fixture (haqiqiy fayldan 4 xodim) — oxirigacha hisoblash', () => {
+  const html = readFileSync(resolve(process.cwd(), 'src/lib/__fixtures__/ivms_raw_anon.xls'), 'utf8')
+  const parsed = parseIvmsHtml(html)
+  const employees = ['101', '102', '103', '104'].map((id) => ({
+    id, name: `Test ${id}`, ivms_person_id: id, is_active: true,
+    calc_type: 'hourly', hourly_rate: 60000, work_start: '08:00', work_end: '17:00', lunch_minutes: 60,
+  }))
+  const computed = computeReport({ records: parsed.records, month: '2026-09', employees, settings: { ...settings, weekend_days: [0] } })
+  const of = (id) => computed.results.find((r) => r.employee.id === id)
+  const dayOf = (id, date) => computed.allDays.filter((d) => d.employee_id === id).find((d) => d.date === date)
+
+  it("hamma xodim ID bo'yicha moslashadi", () => {
+    expect(computed.unmatched).toHaveLength(0)
+    expect(computed.results.every((r) => r.hasData)).toBe(true)
+  })
+
+  it('takroriy Приход/Уход klasterlari bitta juftlikka aylanadi', () => {
+    expect(dayOf('101', '2026-09-26').sessions).toHaveLength(1) // 16:16 Приход ×2 … 18:23 Уход ×2
+    expect(dayOf('102', '2026-09-28').sessions).toHaveLength(1) // 06:53 Приход ×3 + 08:11 Приход, 17:24 Уход
+  })
+
+  it('Уход bosilmagan Приход hisoblanmaydi', () => {
+    expect(dayOf('103', '2026-09-28')).toMatchObject({ worked_minutes: 0, sessions: [] })
+    expect(of('103').summary.notes).toContain('Ketaman bosilmagan')
+  })
+
+  it('ogohlantirishlar: yopilmagan juftlik va faqat «Нет» kunlar', () => {
+    const text = reportWarnings(parsed, computed).join(' | ')
+    expect(text).toMatch(/\d+ ta yopilmagan juftlik/)
+    expect(text).toMatch(/\d+ ta xodim-kun faqat «Нет»/)
+    expect(text).toContain('26.09–28.09')
   })
 })

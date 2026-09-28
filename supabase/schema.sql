@@ -78,6 +78,13 @@ create table if not exists public.attendance_records (
   overtime_minutes integer not null default 0
 );
 
+-- Xom format ("Отчет об исходных записях"): Приход→Уход juftliklari va kun izohlari (idempotent)
+--   sessions: [{"in": 482, "out": 790}, ...] — smena sanasining 00:00 idan daqiqalar (out 1440 dan oshishi mumkin)
+--   issues:   [{"type": "unclosed_in", "at": 1020}, ...] — yopilmagan Приход, Приход'siz Уход, faqat «Нет» va h.k.
+-- NULL — eski "Punch Report" qatori (check_in/check_out dan hisoblanadi)
+alter table public.attendance_records add column if not exists sessions jsonb;
+alter table public.attendance_records add column if not exists issues   jsonb;
+
 create index if not exists attendance_report_idx on public.attendance_records (report_id);
 create index if not exists attendance_employee_idx on public.attendance_records (employee_id);
 
@@ -250,11 +257,15 @@ as $$
   select coalesce((select (value -> 'locked_months') ? p_month from public.settings where key = 'app'), false)
 $$;
 
--- Hisobot natijalarini almashtiradi (qayta hisoblash); snapshot berilsa — u ham yangilanadi
+-- Hisobot natijalarini almashtiradi (qayta hisoblash); snapshot berilsa — u ham yangilanadi,
+-- p_attendance berilsa (xom format) — kunlik qatorlar ham qayta yoziladi.
+-- Eski 3 argumentli variant o'chiriladi (aks holda chaqiruv ikki ma'noli bo'lib qoladi)
+drop function if exists public.replace_report_calculations(uuid, jsonb, jsonb);
 create or replace function public.replace_report_calculations(
   p_report_id uuid,
   p_calculations jsonb,
-  p_settings_snapshot jsonb default null
+  p_settings_snapshot jsonb default null,
+  p_attendance jsonb default null
 )
 returns void
 language plpgsql
@@ -272,6 +283,16 @@ begin
   end if;
   if p_settings_snapshot is not null then
     update public.monthly_reports set settings_snapshot = p_settings_snapshot where id = p_report_id;
+  end if;
+  if p_attendance is not null then
+    delete from public.attendance_records where report_id = p_report_id;
+    insert into public.attendance_records
+      (employee_id, report_id, date, day_of_week, check_in, check_out,
+       is_weekend, worked_minutes, late_minutes, overtime_minutes, sessions, issues)
+    select a.employee_id, p_report_id, a.date, a.day_of_week, a.check_in, a.check_out,
+           coalesce(a.is_weekend, false), coalesce(a.worked_minutes, 0),
+           coalesce(a.late_minutes, 0), coalesce(a.overtime_minutes, 0), a.sessions, a.issues
+    from jsonb_populate_recordset(null::public.attendance_records, p_attendance) a;
   end if;
   delete from public.salary_calculations where report_id = p_report_id;
   insert into public.salary_calculations
@@ -313,10 +334,10 @@ begin
 
   insert into public.attendance_records
     (employee_id, report_id, date, day_of_week, check_in, check_out,
-     is_weekend, worked_minutes, late_minutes, overtime_minutes)
+     is_weekend, worked_minutes, late_minutes, overtime_minutes, sessions, issues)
   select a.employee_id, r.id, a.date, a.day_of_week, a.check_in, a.check_out,
          coalesce(a.is_weekend, false), coalesce(a.worked_minutes, 0),
-         coalesce(a.late_minutes, 0), coalesce(a.overtime_minutes, 0)
+         coalesce(a.late_minutes, 0), coalesce(a.overtime_minutes, 0), a.sessions, a.issues
   from jsonb_populate_recordset(null::public.attendance_records, coalesce(p_attendance, '[]'::jsonb)) a;
 
   perform public.replace_report_calculations(r.id, p_calculations);
@@ -324,8 +345,8 @@ begin
 end
 $$;
 
-revoke all on function public.replace_report_calculations(uuid, jsonb, jsonb) from public, anon;
-grant execute on function public.replace_report_calculations(uuid, jsonb, jsonb) to authenticated;
+revoke all on function public.replace_report_calculations(uuid, jsonb, jsonb, jsonb) from public, anon;
+grant execute on function public.replace_report_calculations(uuid, jsonb, jsonb, jsonb) to authenticated;
 revoke all on function public.save_month_report(text, text, text, jsonb, jsonb, jsonb) from public, anon;
 grant execute on function public.save_month_report(text, text, text, jsonb, jsonb, jsonb) to authenticated;
 
