@@ -1,34 +1,37 @@
 import { describe, it, expect } from 'vitest'
-import { parseSessionsInput, editRowsFor, issueDetail, collectDayIssues } from './dayEdit'
+import { parseShiftInput, editPairFor, issueDetail, collectDayIssues } from './dayEdit'
 
-describe('parseSessionsInput — qo\'lda kiritilgan juftliklar', () => {
-  it('HH:MM juftliklarini daqiqaga aylantiradi, bo\'sh qatorlarni tashlaydi, tartiblaydi', () => {
-    expect(parseSessionsInput([{ in: '13:00', out: '17:00' }, { in: '', out: '' }, { in: '8:00', out: '12:00' }]))
-      .toEqual([{ in: 480, out: 720 }, { in: 780, out: 1020 }])
+describe('parseShiftInput — sana + soat bilan kirish/chiqish', () => {
+  it('smena kirish sanasiga tegishli; chiqish ertasi kuni bo\'lishi mumkin', () => {
+    expect(parseShiftInput({ in: '2026-09-10T17:00', out: '2026-09-11T08:20' })).toEqual({
+      date: '2026-09-10', sessions: [{ in: 1020, out: 1440 + 500 }],
+    })
+    expect(parseShiftInput({ in: '2026-09-10T08:00', out: '2026-09-10T17:05' }).sessions).toEqual([{ in: 480, out: 1025 }])
   })
-  it('hammasi bo\'sh — kun kelmagan (bo\'sh ro\'yxat)', () => {
-    expect(parseSessionsInput([{ in: '', out: '' }])).toEqual([])
+  it("ikkalasi bo'sh — kun «kelmagan»", () => {
+    expect(parseShiftInput({ in: '', out: '' })).toEqual({ date: null, sessions: [] })
   })
-  it('noto\'g\'ri format, chiqish <= kirish va kesishgan juftliklar xato beradi', () => {
-    expect(() => parseSessionsInput([{ in: '8', out: '17:00' }])).toThrow('SS:DD')
-    expect(() => parseSessionsInput([{ in: '17:00', out: '08:00' }])).toThrow('chiqish kirishdan keyin')
-    expect(() => parseSessionsInput([{ in: '08:00', out: '13:00' }, { in: '12:00', out: '17:00' }])).toThrow('kesib')
-    expect(() => parseSessionsInput([{ in: '08:00', out: '' }])).toThrow('SS:DD')
-  })
-  it('tungi smenada chiqish kirishdan kichik bo\'lsa — keyingi kun', () => {
-    expect(parseSessionsInput([{ in: '22:00', out: '06:00' }], { night: true })).toEqual([{ in: 1320, out: 1800 }])
+  it("bittasi bo'sh, noto'g'ri format, chiqish <= kirish va juda uzun smena xato beradi", () => {
+    expect(() => parseShiftInput({ in: '2026-09-10T08:00', out: '' })).toThrow("to'liq")
+    expect(() => parseShiftInput({ in: '2026-09-10 8', out: '2026-09-10T09:00' })).toThrow("to'g'ri")
+    expect(() => parseShiftInput({ in: '2026-09-10T17:00', out: '2026-09-10T08:00' })).toThrow('chiqish sanasini')
+    expect(() => parseShiftInput({ in: '2026-09-10T08:00', out: '2026-09-13T08:00' })).toThrow('36 soat')
   })
 })
 
 describe('tuzatish oynasi va muammolar ro\'yxati', () => {
-  it('yopilmagan Приход: kirish to\'ldirilgan, Уход bo\'sh (foydalanuvchi to\'ldiradi)', () => {
-    const day = { sessions: [{ in: 480, out: 720 }], issues: [{ type: 'unclosed_in', at: 840 }] }
-    expect(editRowsFor(day)).toEqual([{ in: '08:00', out: '12:00' }, { in: '14:00', out: '' }])
+  it("mavjud smena: birinchi kirish — oxirgi chiqish (chiqish ertasi kuni bo'lsa sanasi ham)", () => {
+    expect(editPairFor({ date: '2026-09-10', sessions: [{ in: 1020, out: 1940 }], issues: [] }))
+      .toEqual({ in: '2026-09-10T17:00', out: '2026-09-11T08:20' })
   })
-  it("Приход'siz Уход: chiqish to'ldirilgan; faqat «Нет»: birinchi va oxirgi taklif qilinadi", () => {
-    expect(editRowsFor({ sessions: [], issues: [{ type: 'orphan_out', at: 1020 }] })).toEqual([{ in: '', out: '17:00' }])
-    expect(editRowsFor({ sessions: [], issues: [{ type: 'only_none', at: 483, last: 1030, count: 3 }] })).toEqual([{ in: '08:03', out: '17:10' }])
-    expect(editRowsFor({})).toEqual([{ in: '', out: '' }])
+  it("yopilmagan Приход: kirish yozilgan, chiqish bo'sh; Приход'siz Уход: chiqish yozilgan", () => {
+    expect(editPairFor({ date: '2026-09-10', sessions: [], issues: [{ type: 'unclosed_in', at: 1020 }] })).toEqual({ in: '2026-09-10T17:00', out: '' })
+    expect(editPairFor({ date: '2026-09-10', sessions: [], issues: [{ type: 'orphan_out', at: 500 }] })).toEqual({ in: '', out: '2026-09-10T08:20' })
+  })
+  it('faqat «Нет»: birinchi va oxirgi punch (sana va soat bilan) taklif qilinadi', () => {
+    expect(editPairFor({ date: '2026-09-10', sessions: [], issues: [{ type: 'only_none', at: 1198, last: 2039, count: 4 }] }))
+      .toEqual({ in: '2026-09-10T19:58', out: '2026-09-11T09:59' })
+    expect(editPairFor({ date: '2026-09-10' })).toEqual({ in: '', out: '' })
   })
   it('tavsif va ro\'yxat yig\'ish', () => {
     expect(issueDetail({ type: 'only_none', at: 483, last: 1030, count: 3 })).toBe('Faqat «Нет»: birinchi 08:03, oxirgi 17:10 (3 ta)')

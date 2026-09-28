@@ -74,14 +74,18 @@ export default function Calculate() {
   }
 
   // Kunni qo'lda tuzatish (xom format): juftliklar almashtiriladi, oy saqlangan juftliklardan qayta hisoblanadi
-  async function handleSaveDay(employeeId, date, sessions) {
+  async function handleSaveDay(employeeId, editedDate, parsed) {
     if (locked) throw new Error(`${view.month} oyi qulflangan. Tuzatish uchun avval oyni oching.`)
-    await recalculateMonth(view.month, { dayOverrides: [{ employeeId, date, sessions }] })
+    // smena kirish sanasiga yoziladi; boshqa qatordan tuzatilgan bo'lsa, o'sha qator bo'shatiladi
+    const target = parsed.date || editedDate
+    const dayOverrides = [{ employeeId, date: target, sessions: parsed.sessions }]
+    if (editedDate && editedDate !== target) dayOverrides.push({ employeeId, date: editedDate, sessions: [] })
+    await recalculateMonth(view.month, { dayOverrides })
     const next = await loadMonthView(view.month)
     setView(next)
     const r = next.results.find((x) => x.employee.id === employeeId)
     if (r) setDetail({ employee: r.employee, summary: r.summary, days: next.daysByEmp.get(employeeId) || [] })
-    setAddedMsg(`${formatDate(date)} kuni tuzatildi va oylik qayta hisoblandi.`)
+    setAddedMsg(`${formatDate(target)} kuni tuzatildi va oylik qayta hisoblandi.`)
   }
 
   async function refresh(month) {
@@ -428,7 +432,7 @@ export default function Calculate() {
         days={detail?.days || []}
         month={view?.month}
         editable={view?.fileInfo?.format === 'raw_records' && !locked}
-        onSaveDay={detail ? (date, sessions) => handleSaveDay(detail.employee.id, date, sessions) : undefined}
+        onSaveDay={detail ? (date, parsed) => handleSaveDay(detail.employee.id, date, parsed) : undefined}
       />
     </div>
   )

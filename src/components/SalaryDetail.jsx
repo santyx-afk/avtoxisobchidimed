@@ -1,25 +1,23 @@
 import { useEffect, useState } from 'react'
-import { Printer, Pencil, Plus, Trash2, Loader2 } from 'lucide-react'
+import { Printer, Pencil, Plus, Loader2 } from 'lucide-react'
 import { Modal } from './ui'
 import DataTable from './DataTable'
-import { formatSom, formatSigned, shortTime, minutesToHm, minutesToHours, timeToMinutes, daysInMonth } from '../lib/format'
-import { parseSessionsInput, editRowsFor } from '../lib/dayEdit'
+import { formatSom, formatSigned, shortTime, minutesToHm, minutesToHours } from '../lib/format'
+import { parseShiftInput, editPairFor } from '../lib/dayEdit'
 import { CALC_TYPE_LABEL, DAY_ISSUE_LABEL } from '../lib/constants'
 import { printPayslip } from '../lib/payslip'
 
 const hm = (min) => `${String(Math.floor((min % 1440) / 60)).padStart(2, '0')}:${String(min % 60).padStart(2, '0')}`
 /** Juftliklar: "08:02–13:10, 14:00–18:05" */
-export const formatSessions = (sessions) => (sessions || []).map((x) => `${hm(x.in)}–${hm(x.out)}`).join(', ')
+export const formatSessions = (sessions) => (sessions || []).map((x) => `${hm(x.in)}–${hm(x.out)}${x.out >= 1440 ? ' (+1 kun)' : ''}`).join(', ')
 
 /** Bitta ishchining oylik natijasi: farq sabablari + kunlik breakdown */
-const emptyRow = () => ({ in: '', out: '' })
-
 /**
- * editable + onSaveDay(date, sessions) berilsa (xom format oyi), kunlik juftliklarni qo'lda
- * tuzatish mumkin: yopilmagan Приход, Приход'siz Уход, faqat «Нет» kunlar va h.k.
+ * editable + onSaveDay(tahrirlangan sana, {date, sessions}) berilsa (xom format oyi), smenani qo'lda
+ * tuzatish mumkin: kirish va chiqish sana + soat bilan (chiqish ertasi kuni bo'lishi mumkin).
  */
 export default function SalaryDetail({ open, onClose, employee, summary, days = [], month, editable = false, onSaveDay, startEditDate = null }) {
-  const [editing, setEditing] = useState(null) // { date, rows, isNew }
+  const [editing, setEditing] = useState(null) // { date, in, out, isNew }
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
   // Muammolar ro'yxatidan kelgan bo'lsa — shu kun tuzatish oynasi darrov ochiladi
@@ -27,32 +25,26 @@ export default function SalaryDetail({ open, onClose, employee, summary, days = 
     if (!open || !editable || !startEditDate) return
     const d = days.find((x) => x.date === startEditDate)
     setError('')
-    setEditing({ date: startEditDate, rows: editRowsFor(d || {}) })
+    setEditing({ date: startEditDate, ...editPairFor(d || { date: startEditDate }) })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, startEditDate, editable])
   if (!summary) return null
 
-  const night = (timeToMinutes(employee?.work_end) ?? 1020) < (timeToMinutes(employee?.work_start) ?? 480)
   const startEdit = (d) => {
     setError('')
-    setEditing({
-      date: d.date,
-      rows: editRowsFor(d),
-    })
+    setEditing({ date: d.date, ...editPairFor(d) })
   }
   const startNew = () => {
     setError('')
-    setEditing({ date: '', rows: [emptyRow()], isNew: true })
+    setEditing({ date: '', in: '', out: '', isNew: true })
   }
-  const setRow = (i, patch) => setEditing((e) => ({ ...e, rows: e.rows.map((r, k) => (k === i ? { ...r, ...patch } : r)) }))
   async function save() {
     try {
-      if (!/^\d{4}-\d{2}-\d{2}$/.test(editing.date) || !editing.date.startsWith(`${month}-`)) {
-        throw new Error(`Sanani ${month} oyi ichidan tanlang`)
-      }
-      const sessions = parseSessionsInput(editing.rows, { night })
+      const parsed = parseShiftInput(editing)
+      if (editing.isNew && !parsed.date) throw new Error('Kirish sanasi va soatini kiriting')
+      if (parsed.date && !parsed.date.startsWith(`${month}-`)) throw new Error(`Kirish sanasi ${month} oyi ichida bo'lishi kerak`)
       setSaving(true)
-      await onSaveDay(editing.date, sessions)
+      await onSaveDay(editing.isNew ? parsed.date : editing.date, parsed)
       setEditing(null)
     } catch (err) {
       setError(err.message || 'Saqlashda xatolik')
@@ -81,12 +73,12 @@ export default function SalaryDetail({ open, onClose, employee, summary, days = 
     { key: 'check_in', header: 'Kirish', align: 'center', render: (d) => <span className="tabular">{shortTime(d.check_in)}</span> },
     { key: 'check_out', header: 'Chiqish', align: 'center', render: (d) => <span className="tabular">{shortTime(d.check_out)}</span> },
     ...(hasSessions ? [{
-      key: 'sessions', header: 'Juftliklar', sortable: false,
+      key: 'sessions', header: 'Smena', sortable: false,
       render: (d) => (
         <div>
           <span className="tabular">{formatSessions(d.sessions) || '—'}</span>
           {(d.issues || []).map((i, k) => (
-            <span key={k} className="badge-amber ml-1">{DAY_ISSUE_LABEL[i.type] || i.type}{i.at != null && i.type !== 'only_none' ? ` ${hm(i.at)}` : ''}</span>
+            <span key={k} className="badge-amber ml-1">{DAY_ISSUE_LABEL[i.type] || i.type}{i.at != null ? ` ${hm(i.at)}${i.type === 'only_none' && i.last != null ? `–${hm(i.last)}` : ''}` : ''}</span>
           ))}
         </div>
       ),
@@ -173,33 +165,20 @@ export default function SalaryDetail({ open, onClose, employee, summary, days = 
             <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-200">
               {editing.isNew ? "Kun qo'shish" : `Kunni tuzatish: ${editing.date}`}
             </h3>
-            {editing.isNew && (
-              <input
-                type="date" className="input w-auto" value={editing.date}
-                min={`${month}-01`} max={`${month}-${String(daysInMonth(month)).padStart(2, '0')}`}
-                onChange={(e) => setEditing({ ...editing, date: e.target.value })}
-              />
-            )}
             <p className="text-xs text-slate-500">
-              Ishlagan vaqt oralig'ini (kirish – chiqish) kiriting. Tanaffus/tushlik bo'lsa, ikkita juftlik qiling (08:00–12:00, 13:00–17:00).
-              Bo'sh qoldirsangiz kun «kelmagan» bo'ladi.{night && ' Tungi smena: chiqish kirishdan kichik bo\'lsa, keyingi kun hisoblanadi.'}
+              Smena — birinchi kirish (Приход) dan oxirgi chiqish (Уход) gacha. Sana va soatni kiriting; chiqish ertasi kuni bo'lsa, chiqish sanasini ham o'zgartiring
+              (masalan Приход 10.09 17:00, Уход 11.09 08:20 — smena 10.09 ga yoziladi). Ikkalasini bo'sh qoldirsangiz, kun «kelmagan» bo'ladi.
             </p>
-            {editing.rows.map((r, i) => (
-              <div key={i} className="flex items-center gap-2">
-                <input className="input tabular w-24" placeholder="08:00" value={r.in} onChange={(e) => setRow(i, { in: e.target.value })} />
-                <span className="text-slate-400">–</span>
-                <input className="input tabular w-24" placeholder="17:00" value={r.out} onChange={(e) => setRow(i, { out: e.target.value })} />
-                <button
-                  className="btn-ghost p-1.5" title="Juftlikni o'chirish"
-                  onClick={() => setEditing({ ...editing, rows: editing.rows.filter((_, k) => k !== i) })}
-                ><Trash2 className="h-4 w-4" /></button>
-              </div>
-            ))}
+            <div className="flex flex-wrap items-end gap-3">
+              <label className="text-xs text-slate-500">Kirish
+                <input type="datetime-local" className="input tabular mt-1 block" value={editing.in} onChange={(e) => setEditing({ ...editing, in: e.target.value })} />
+              </label>
+              <label className="text-xs text-slate-500">Chiqish
+                <input type="datetime-local" className="input tabular mt-1 block" value={editing.out} onChange={(e) => setEditing({ ...editing, out: e.target.value })} />
+              </label>
+            </div>
             {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
             <div className="flex flex-wrap gap-2">
-              <button className="btn-secondary btn-sm" onClick={() => setEditing({ ...editing, rows: [...editing.rows, emptyRow()] })}>
-                <Plus className="h-3.5 w-3.5" /> Juftlik
-              </button>
               <button className="btn-primary btn-sm" onClick={save} disabled={saving}>
                 {saving && <Loader2 className="h-3.5 w-3.5 animate-spin" />} Saqlash va qayta hisoblash
               </button>
