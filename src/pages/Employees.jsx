@@ -14,6 +14,7 @@ const emptyForm = {
   name: '', ivms_person_id: '', calc_type: 'fix', monthly_salary: '', hourly_rate: '', daily_rate: '',
   work_start: '08:00', work_end: '17:00', lunch_minutes: 60,
   department: 'Dimed', position: '', is_active: true,
+  duty_24h: false, duty_days: 10, // sutkalik smena (24 soat) va oyiga kutilgan sutkalar soni
   work_days: null, // null = umumiy sozlama; array = individual ish kunlari
   grace_period_min: '', late_penalty_per_min: '',
   overtime_multiplier: '', weekend_multiplier: '',
@@ -162,7 +163,6 @@ export default function Employees() {
     ['active', 'Faol'],
     ['fix', 'Fix'],
     ['daily', 'Kunbay'],
-    ['hourly', 'Soatbay'],
   ]
 
   return (
@@ -250,6 +250,8 @@ function EmployeeForm({ employee, onClose, onSaved }) {
           hourly_rate: employee.hourly_rate ?? '',
           daily_rate: employee.daily_rate ?? '',
           work_days: Array.isArray(employee.work_days) ? employee.work_days : null,
+          duty_24h: !!employee.duty_24h,
+          duty_days: employee.duty_days ?? 10,
           grace_period_min: employee.grace_period_min ?? '',
           late_penalty_per_min: employee.late_penalty_per_min ?? '',
           overtime_multiplier: employee.overtime_multiplier ?? '',
@@ -280,9 +282,10 @@ function EmployeeForm({ employee, onClose, onSaved }) {
     setError('')
     if (!form.name.trim()) return setError('Ism kiritilishi shart (IVMS dagi ism bilan bir xil)')
     if (form.calc_type === 'fix' && !form.monthly_salary) return setError('Fix oylik uchun oylik summa kiriting')
-    if (form.calc_type === 'hourly' && !form.hourly_rate) return setError('Soatbay uchun soat stavkasini kiriting')
+    if (form.calc_type === 'hourly') return setError('Soatbay hisoblash ishlatilmaydi — Fix oylik yoki Kunbay tanlang')
     if (form.calc_type === 'daily' && !form.daily_rate) return setError('Kunbay uchun kunlik summani kiriting')
-    if (form.work_end === form.work_start) return setError("Ish boshlanishi va tugashi bir xil bo'lmasin")
+    if (form.duty_24h && !(Number(form.duty_days) > 0)) return setError('Sutkalik smena uchun oyiga kutilgan sutkalar sonini kiriting')
+    if (!form.duty_24h && form.work_end === form.work_start) return setError("Ish boshlanishi va tugashi bir xil bo'lmasin")
     // Eslatma: tugash < boshlanish bo'lsa — tungi smena (yarim tundan o'tadi), bu ruxsat etiladi
 
     const payload = {
@@ -292,7 +295,7 @@ function EmployeeForm({ employee, onClose, onSaved }) {
       hourly_rate: form.calc_type === 'hourly' ? Number(form.hourly_rate) : null,
       daily_rate: form.calc_type === 'daily' ? Number(form.daily_rate) : null,
       work_start: form.work_start,
-      work_end: form.work_end,
+      work_end: form.duty_24h ? form.work_start : form.work_end, // sutkalik: tugash = boshlanish + 24 soat
       lunch_minutes: Number(form.lunch_minutes) || 0,
       department: form.department?.trim() || null,
       position: form.position?.trim() || null,
@@ -306,6 +309,11 @@ function EmployeeForm({ employee, onClose, onSaved }) {
     }
     // IVMS ID — bo'sh bo'lsa ism bo'yicha moslanadi. Kalit faqat kerak bo'lganda yuboriladi
     // (sxema hali yangilanmagan bazada ham ishchini saqlash ishlashi uchun)
+    // Sutkalik smena kalitlari ham faqat kerak bo'lganda (sxema yangilanmagan bazada ishchi saqlash ishlashi uchun)
+    if (form.duty_24h || employee?.duty_24h) {
+      payload.duty_24h = !!form.duty_24h
+      payload.duty_days = form.duty_24h ? Number(form.duty_days) : null
+    }
     const pid = String(form.ivms_person_id ?? '').trim()
     if (pid || employee?.ivms_person_id) payload.ivms_person_id = pid || null
 
@@ -332,10 +340,9 @@ function EmployeeForm({ employee, onClose, onSaved }) {
         </Field>
 
         <Field label="Hisoblash turi" required>
-          <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
             {[['fix', 'Fix oylik', 'Belgilangan oylik, kunlarga bo\'linadi'],
-              ['daily', 'Kunbay', 'Kunlik summa × kelgan kunlar'],
-              ['hourly', 'Soatbay', 'Ishlagan soatlar bo\'yicha']].map(([val, title, desc]) => (
+              ['daily', 'Kunbay', 'Kunlik summa × kelgan kunlar']].map(([val, title, desc]) => (
               <button
                 type="button"
                 key={val}
@@ -363,22 +370,36 @@ function EmployeeForm({ employee, onClose, onSaved }) {
             <MoneyInput value={form.daily_rate} onChange={(v) => set('daily_rate', v)} placeholder="150,000" />
           </Field>
         )}
-        {form.calc_type === 'hourly' && (
-          <Field label="Soat stavkasi (so'm/soat)" required>
-            <MoneyInput value={form.hourly_rate} onChange={(v) => set('hourly_rate', v)} placeholder="25,000" />
-          </Field>
-        )}
-
         <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
           <Field label="Ish boshlanishi">
             <input type="time" className="input" value={form.work_start} onChange={(e) => set('work_start', e.target.value)} />
           </Field>
-          <Field label="Ish tugashi">
-            <input type="time" className="input" value={form.work_end} onChange={(e) => set('work_end', e.target.value)} />
-          </Field>
-          <Field label="Tushlik (daqiqa)">
-            <input type="number" min="0" className="input" value={form.lunch_minutes} onChange={(e) => set('lunch_minutes', e.target.value)} />
-          </Field>
+          {!form.duty_24h && (
+            <>
+              <Field label="Ish tugashi">
+                <input type="time" className="input" value={form.work_end} onChange={(e) => set('work_end', e.target.value)} />
+              </Field>
+              <Field label="Tushlik (daqiqa)" hint="Faqat eski (Punch Report) formatda">
+                <input type="number" min="0" className="input" value={form.lunch_minutes} onChange={(e) => set('lunch_minutes', e.target.value)} />
+              </Field>
+            </>
+          )}
+          {form.duty_24h && (
+            <Field label="Oyiga sutkalar soni" hint="Kutilgan sutkalar; oylik shunga bo'linadi" required>
+              <input type="number" min="1" className="input" value={form.duty_days} onChange={(e) => set('duty_days', e.target.value)} />
+            </Field>
+          )}
+        </div>
+        <div className="rounded-xl border border-slate-200 p-3 dark:border-slate-700">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">Sutkalik smena (24 soat)</p>
+              <p className="text-xs text-slate-400">
+                Приход {form.work_start} da, Уход ertasi kuni. Bir sutka = bitta smena; dam olish kuni, overtime va kelmagan kun jarimasi hisoblanmaydi.
+              </p>
+            </div>
+            <Toggle checked={!!form.duty_24h} onChange={(v) => set('duty_24h', v)} />
+          </div>
         </div>
         {form.work_end < form.work_start && (
           <p className="-mt-2 flex items-center gap-1.5 text-xs text-brand-600 dark:text-brand-400">

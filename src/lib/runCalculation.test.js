@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { computeReport, saveReport, recalculateMonth, reportWarnings } from './runCalculation'
+import { dayIssueSummary } from './salaryCalc'
 import { setMonthLocked } from './monthLock'
 import { parseIvmsHtml } from './ivmsParser'
 import { rawHtml } from './__fixtures__/rawHtml'
@@ -186,7 +187,7 @@ describe('xom format (Приход / Уход): saqlash, qayta hisoblash, ogohla
 
   it("ogohlantirishlar: yopilmagan juftliklar va faqat «Нет» kunlar soni", async () => {
     const { parsed, computed } = await setup('Ogoh Ishchi', '902')
-    const text = reportWarnings(parsed, computed).join(' | ')
+    const text = dayIssueSummary(computed.allDays, parsed.meta.statefulDates).map((x) => x.text).join(' | ')
     expect(text).toContain('1 ta yopilmagan juftlik')
     expect(text).toContain('1 ta xodim-kun faqat «Нет»')
   })
@@ -280,7 +281,7 @@ describe('anonim fixture (haqiqiy fayldan 4 xodim) — oxirigacha hisoblash', ()
   })
 
   it('ogohlantirishlar: yopilmagan juftlik va faqat «Нет» kunlar', () => {
-    const text = reportWarnings(parsed, computed).join(' | ')
+    const text = dayIssueSummary(computed.allDays, parsed.meta.statefulDates).map((x) => x.text).join(' | ')
     expect(text).toMatch(/\d+ ta yopilmagan juftlik/)
     expect(text).toMatch(/\d+ ta xodim-kun faqat «Нет»/)
     expect(text).toContain('26.09–28.09')

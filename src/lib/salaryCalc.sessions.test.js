@@ -131,7 +131,8 @@ describe('juftlash: Уход bosilmagan kun', () => {
 describe('juftlash: faqat «Нет» va Приход\'siz Уход', () => {
   it("faqat «Нет» bo'lgan kun — kelmagan, izoh yoziladi", () => {
     const res = calc([p(D8, '09:00:00', 'none'), p(D8, '09:05:00', 'none')])
-    expect(day(res, D8)).toMatchObject({ sessions: [], issues: [{ type: 'only_none', at: null }] })
+    expect(day(res, D8)).toMatchObject({ sessions: [], issues: [{ type: 'only_none', at: 540, last: 545, count: 2 }] })
+    expect(res.summary.notes).toContain('08.09 09:00–09:05')
     expect(res.summary.work_days).toBe(0)
     expect(res.summary.notes).toContain('faqat «Нет»')
   })
@@ -211,5 +212,59 @@ describe('oy chegarasi va qayta hisoblash', () => {
       [p(D8, '17:00:00', 'out'), p(D8, '08:00:00', 'in')], { workStart: 480, workEnd: 1020 },
     )
     expect(shifts[0].sessions).toEqual([{ in: 480, out: 1020 }])
+  })
+})
+
+describe('faqat «Нет» kun: birinchi va oxirgi punch', () => {
+  const nurse = { id: 'n', calc_type: 'fix', monthly_salary: 3000000, work_start: '20:00', work_end: '08:00', lunch_minutes: 0 }
+  const s0 = { ...settings, weekend_days: [] }
+
+  it('kunduzgi: shu kalendar kundagi birinchi va oxirgi', () => {
+    const res = calc([p(D8, '17:10:00', 'none'), p(D8, '08:03:00', 'none'), p(D8, '12:00:00', 'none')])
+    expect(day(res, D8).issues).toEqual([{ type: 'only_none', at: 483, last: 1030, count: 3 }])
+  })
+
+  it('tungi hamshira: kechqurundan ertasi kuni 10:00 gacha bo\'lgan punchlar bitta smena', () => {
+    const res = calc([
+      p(D8, '19:58:00', 'none'), p(D8, '23:00:00', 'none'), p('2026-09-09', '08:15:00', 'none'), p('2026-09-09', '09:59:00', 'none'),
+      p('2026-09-09', '10:30:00', 'none'), // 10:00 dan keyin — keyingi kun guruhi
+    ], nurse, s0)
+    expect(day(res, D8).issues).toEqual([{ type: 'only_none', at: 1198, last: 1440 + 599, count: 4 }])
+    expect(day(res, '2026-09-09').issues[0]).toMatchObject({ type: 'only_none', at: 630, count: 1 })
+  })
+})
+
+describe('sutkalik smena (24 soat)', () => {
+  const duty = { id: 'd', calc_type: 'fix', monthly_salary: 3000000, work_start: '08:00', work_end: '08:00', lunch_minutes: 60, duty_24h: true, duty_days: 10 }
+  const s0 = { ...settings, weekend_days: [0] }
+  const punches = [
+    p('2026-09-06', '08:00:00', 'in'), p('2026-09-07', '08:10:00', 'out'), // yakshanba boshlangan sutka
+    p('2026-09-09', '07:58:00', 'in'), p('2026-09-10', '08:00:00', 'out'),
+  ]
+
+  it('sutka bitta smena: juftlik Приход sanasiga, Уход ertasi kuni', () => {
+    const res = calc(punches, duty, s0)
+    expect(day(res, '2026-09-06').sessions).toEqual([{ in: 480, out: 1930 }])
+    expect(res.summary.work_days).toBe(2)
+  })
+
+  it("fix: oylik ÷ kutilgan sutkalar × ishlagan sutkalar; dam olish, overtime va kelmagan jarima yo'q", () => {
+    const res = calc(punches, duty, s0)
+    expect(res.summary.expected_work_days).toBe(10)
+    expect(res.summary.calculated_salary).toBe(600000) // 3 000 000 / 10 × 2
+    expect(res.summary.overtime_pay).toBe(0)
+    expect(res.summary.weekend_pay).toBe(0)
+    expect(res.summary.notes).toContain('Sutkalik smena: 2 sutka ishladi (kutilgan 10)')
+    expect(res.summary.notes).not.toContain('kelmagan')
+  })
+
+  it('kunbay sutkalik: sutka × kunlik summa', () => {
+    const res = calc(punches, { ...duty, calc_type: 'daily', daily_rate: 400000 }, s0)
+    expect(res.summary.calculated_salary).toBe(800000)
+  })
+
+  it("Уход 30 soatdan keyin bo'lsa juftlik yopilmagan", () => {
+    const res = calc([p('2026-09-09', '08:00:00', 'in'), p('2026-09-10', '15:00:00', 'out')], duty, s0)
+    expect(res.summary.work_days).toBe(0)
   })
 })

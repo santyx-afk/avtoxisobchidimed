@@ -6,6 +6,8 @@ import {
 import { PageHeader, StatCard, EmptyState, PageLoader } from '../components/ui'
 import DataTable from '../components/DataTable'
 import SalaryDetail from '../components/SalaryDetail'
+import IssueList from '../components/IssueList'
+import { dayIssueSummary } from '../lib/salaryCalc'
 import { formatSom, formatSigned, formatMonth, formatDateTime, formatDate } from '../lib/format'
 import { CALC_TYPE_LABEL, REPORT_SOURCE_LABEL, IVMS_FORMAT_LABEL } from '../lib/constants'
 import {
@@ -38,6 +40,7 @@ export default function Calculate() {
   const [addedMsg, setAddedMsg] = useState('')
   const [recalcing, setRecalcing] = useState(false)
   const [locked, setLocked] = useState(false)
+  const [issueType, setIssueType] = useState(null) // ochilgan muammolar ro'yxati turi
   const fileRef = useRef(null)
 
   useEffect(() => {
@@ -108,7 +111,7 @@ export default function Calculate() {
       missingEmployees: result.missingEmployees,
       warnings: result.warnings || [],
       fileInfo: result.parsed
-        ? { format: result.parsed.format, records: result.parsed.records.length, people: result.parsed.meta.names.length }
+        ? { format: result.parsed.format, records: result.parsed.records.length, people: result.parsed.meta.names.length, statefulDates: result.parsed.meta.statefulDates }
         : result.fileInfo || null,
       parsedRecords, // avtomatik qo'shish uchun xom yozuvlar (yuklashdan keyin)
     }
@@ -200,6 +203,17 @@ export default function Calculate() {
       diffs: r.filter((x) => Math.abs(x.summary.difference || 0) > 0).length,
     }
   }, [view])
+
+  // Kunlik muammolar (yopilmagan juftlik, faqat «Нет», ...) — bosib ko'riladi va tuzatiladi
+  const issueSummary = useMemo(() => {
+    if (!view?.daysByEmp) return []
+    return dayIssueSummary([...view.daysByEmp.values()].flat(), view.fileInfo?.statefulDates)
+  }, [view])
+
+  function openIssue(item) {
+    setIssueType(null)
+    setDetail({ employee: item.employee, summary: item.summary, days: view.daysByEmp.get(item.employee.id) || [], startEditDate: item.day.date })
+  }
 
   if (loading) return <PageLoader />
 
@@ -325,10 +339,21 @@ export default function Calculate() {
             <StatCard icon={AlertTriangle} label="Farqli oyliklar" value={agg.diffs} hint="ishchi" tone="red" />
           </div>
 
-          {view.warnings?.length > 0 && (
+          {(view.warnings?.length > 0 || issueSummary.length > 0) && (
             <div className="space-y-1 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-700 dark:border-amber-500/20 dark:bg-amber-500/10 dark:text-amber-300">
               {view.warnings.map((w) => (
                 <p key={w} className="flex items-start gap-2"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" /> {w}</p>
+              ))}
+              {issueSummary.map((x) => (
+                <button
+                  key={x.type} type="button" onClick={() => setIssueType(x.type)}
+                  className="flex w-full items-start gap-2 rounded-lg px-1 py-0.5 text-left hover:bg-amber-100 dark:hover:bg-amber-500/10"
+                  title="Qaysi ishchi va kunda ekanini ko'rish va tuzatish"
+                >
+                  <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                  <span className="flex-1">{x.text}</span>
+                  <span className="shrink-0 font-semibold underline">Ko'rish va tuzatish</span>
+                </button>
               ))}
             </div>
           )}
@@ -383,7 +408,19 @@ export default function Calculate() {
         </div>
       )}
 
+      <IssueList
+        open={!!issueType}
+        onClose={() => setIssueType(null)}
+        type={issueType}
+        title={issueSummary.find((x) => x.type === issueType)?.text}
+        results={view?.results}
+        daysByEmp={view?.daysByEmp}
+        onFix={openIssue}
+        canFix={!locked}
+      />
+
       <SalaryDetail
+        startEditDate={detail?.startEditDate}
         open={!!detail}
         onClose={() => setDetail(null)}
         employee={detail?.employee}

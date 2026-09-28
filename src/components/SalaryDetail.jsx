@@ -1,9 +1,9 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Printer, Pencil, Plus, Trash2, Loader2 } from 'lucide-react'
 import { Modal } from './ui'
 import DataTable from './DataTable'
 import { formatSom, formatSigned, shortTime, minutesToHm, minutesToHours, timeToMinutes, daysInMonth } from '../lib/format'
-import { parseSessionsInput } from '../lib/dayEdit'
+import { parseSessionsInput, editRowsFor } from '../lib/dayEdit'
 import { CALC_TYPE_LABEL, DAY_ISSUE_LABEL } from '../lib/constants'
 import { printPayslip } from '../lib/payslip'
 
@@ -12,17 +12,24 @@ const hm = (min) => `${String(Math.floor((min % 1440) / 60)).padStart(2, '0')}:$
 export const formatSessions = (sessions) => (sessions || []).map((x) => `${hm(x.in)}–${hm(x.out)}`).join(', ')
 
 /** Bitta ishchining oylik natijasi: farq sabablari + kunlik breakdown */
-const toHm = (min) => hm(min)
 const emptyRow = () => ({ in: '', out: '' })
 
 /**
  * editable + onSaveDay(date, sessions) berilsa (xom format oyi), kunlik juftliklarni qo'lda
  * tuzatish mumkin: yopilmagan Приход, Приход'siz Уход, faqat «Нет» kunlar va h.k.
  */
-export default function SalaryDetail({ open, onClose, employee, summary, days = [], month, editable = false, onSaveDay }) {
+export default function SalaryDetail({ open, onClose, employee, summary, days = [], month, editable = false, onSaveDay, startEditDate = null }) {
   const [editing, setEditing] = useState(null) // { date, rows, isNew }
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
+  // Muammolar ro'yxatidan kelgan bo'lsa — shu kun tuzatish oynasi darrov ochiladi
+  useEffect(() => {
+    if (!open || !editable || !startEditDate) return
+    const d = days.find((x) => x.date === startEditDate)
+    setError('')
+    setEditing({ date: startEditDate, rows: editRowsFor(d || {}) })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, startEditDate, editable])
   if (!summary) return null
 
   const night = (timeToMinutes(employee?.work_end) ?? 1020) < (timeToMinutes(employee?.work_start) ?? 480)
@@ -30,7 +37,7 @@ export default function SalaryDetail({ open, onClose, employee, summary, days = 
     setError('')
     setEditing({
       date: d.date,
-      rows: d.sessions?.length ? d.sessions.map((x) => ({ in: toHm(x.in), out: toHm(x.out) })) : [emptyRow()],
+      rows: editRowsFor(d),
     })
   }
   const startNew = () => {

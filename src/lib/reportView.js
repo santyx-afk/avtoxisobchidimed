@@ -1,6 +1,5 @@
 // Saqlangan oy hisobotini ko'rish uchun yordamchi (Calculate, History, Ratings)
 import * as db from './db'
-import { dayIssueWarnings } from './runCalculation'
 import { IVMS_FORMAT } from './constants'
 
 /**
@@ -41,7 +40,7 @@ export async function loadMonthView(month) {
   return {
     month: report.month, report, results, daysByEmp, missingEmployees, unmatchedNames: [],
     fileInfo: { format: isRaw ? IVMS_FORMAT.RAW_RECORDS : IVMS_FORMAT.PUNCH_REPORT },
-    warnings: isRaw ? dayIssueWarnings(attendance) : [],
+    warnings: [], // kunlik muammolar days.issues dan (dayIssueSummary) ko'rsatiladi
   }
 }
 
