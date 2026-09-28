@@ -31,8 +31,8 @@ Dimed klinikasi uchun oylik hisoblash tizimi:
 
 | Fayl | Vazifasi |
 |---|---|
-| `src/lib/salaryCalc.js` | Hisob dvigateli: `buildShifts` (kunduzgi/tungi smena), `calcEmployeeSalary` |
-| `src/lib/ivmsParser.js` | IVMS HTML-xls parser (11 ustunlik chunk, qayta sinxronlash, oyni aniqlash) |
+| `src/lib/salaryCalc.js` | Hisob dvigateli: `buildShifts` (Punch Report), `buildShiftsFromPunches` (Приход/Уход juftliklari), `calcEmployeeSalary` |
+| `src/lib/ivmsParser.js` | IVMS HTML-xls parser: format aniqlash (`punch_report` / `raw_records`), 11 ustunlik chunk, qayta sinxronlash, oyni aniqlash |
 | `src/lib/readReportFile.js` | Fayl o'qish: UTF-8/UTF-16/1251 HTML yoki haqiqiy `.xls/.xlsx` (SheetJS) |
 | `src/lib/runCalculation.js` | Xodimlarni moslash (IVMS ID → ism), `computeReport`, `saveReport`, `recalculateMonth` |
 | `src/lib/db.js` | Ma'lumot qatlami: `realDb.js` (Supabase) yoki `mockDb.js` (DEMO, localStorage) |
@@ -127,6 +127,29 @@ Authentication → Sign In / Providers bo'limida **"Allow new users to sign up" 
 
 ---
 
+### 6.1. Yangi format: «Отчет об исходных записях» (KELDI-KETTI)
+
+Xom punchlar (bitta qator = bitta punch). Parser formatni sarlavhadagi «Время» + «Состояние посещения» bo'yicha o'zi aniqlaydi; eski «Punch Report» o'zgarmagan (birinchi kirish / oxirgi chiqish, tushlik ayriladi). ID oldidagi apostrof (`'44`) olib tashlanadi.
+
+**Juftlash qoidalari** (`buildShiftsFromPunches`):
+- «Нет» punchlar hisobga olinmaydi.
+- Ish vaqti = har bir Приход → keyingi Уход; kundagi barcha juftliklar qo'shiladi. Juftlik **Приход sanasiga** tegishli (tungi smena ham).
+- Bir xil holatdagi ketma-ket bosishlar (2 daqiqa ichida): Приход — birinchisi, Уход — oxirgisi.
+- Tanaffus: «Уход при перерыве» → «Приход при перерыве» oralig'i ayriladi. **Faqat shu tartib**; juftlanmagan tanaffus punchi e'tiborsiz va izoh yoziladi.
+- Уход bosilmagan Приход — juftlik **hisoblanmaydi**; kunda to'liq juftlik bo'lmasa kun «kelmagan», izohda «Ketaman bosilmagan». Приход'siz Уход ham hisoblanmaydi (izoh).
+- Ochiq Приход turganda ikkinchi Приход — takror (birinchisi qoladi). Ochiq Приход `max(16 soat, jadval + 4 soat)` dan eski bo'lsa yopilmagan hisoblanadi (unutilgan Уход keyingi kunga ulanmaydi).
+- 1 daqiqadan qisqa juftlik (sinov bosishi) hisoblanmaydi.
+- Tungi jadvalli xodimda (tugash < boshlanish) «o'rta nuqta»dan oldingi punch oldingi kun smenasiga tegishli.
+- **Tushlik (`lunch_minutes`) bu formatda ishlatilmaydi**: ishlangan vaqt = juftliklar − tanaffus; overtime chegarasi ham tushliksiz jadvaldan.
+- Kechikish = kunning birinchi Приход vaqti − work_start − grace. Overtime formulasi o'zgarmagan, lekin haqiqiy ishlangan daqiqalardan hisoblanadi.
+- Faqat «Нет» bo'lgan kun — kelmagan (dam olish kunida izoh yozilmaydi).
+
+**Saqlash:** `attendance_records.sessions` (`[{in,out}]`, smena sanasi 00:00 dan daqiqalar) va `issues` (`[{type,at}]`). `sessions IS NULL` — eski Punch Report qatori. Snapshot / avans / «Qayta hisoblash» saqlangan juftliklardan ishlaydi (punchlar qayta kerak emas); xom format oyida kunlik qatorlar ham qayta yoziladi (`replace_report_calculations(..., p_attendance)`).
+
+**UI:** yuklashda format, yozuvlar soni va ogohlantirishlar (yopilmagan juftliklar, faqat «Нет» kunlar, Приход'siz Уход, juftlanmagan tanaffus); xodim tafsilotida kunlik juftliklar (`08:02–13:10, 14:00–18:05`) va izoh belgilari.
+
+⚠️ **Bu o'zgarish sxemani o'zgartiradi — `supabase/schema.sql` ni qayta ishga tushiring** (deploydan oldin): yangi ustunlar `sessions`, `issues`, `replace_report_calculations` yangi imzo (eski 3 argumentli o'chiriladi). Sxema yangilanmagan bo'lsa, xom format saqlanmaydi va «schema.sql ni qayta ishga tushiring» xatosi chiqadi (juftliklar jimgina yo'qolmaydi). Eski format bunga bog'liq emas.
+
 ## 7. Ma'lumotlar yaxlitligi
 
 - **Tranzaksiyali saqlash:** hisobot `save_month_report(...)` bilan, qayta hisoblash `replace_report_calculations(...)` bilan saqlanadi. Ikkalasi plpgsql funksiya, `security invoker`.
@@ -151,7 +174,7 @@ Authentication → Sign In / Providers bo'limida **"Allow new users to sign up" 
 
 ```bash
 npm install
-npm test        # 95 ta unit test
+npm test        # 141 ta unit test
 npm run lint    # ESLint
 npm run build
 ```
@@ -171,6 +194,8 @@ npm run build
 | `c2a9655` | Parser: qayta sinxronlash, kodirovkalar, xlsx, kasrli summa |
 | `2757f50` | UI tuzatishlar, ESLint, GitHub Actions CI |
 
+Keyingi PR (`feat/keldi-ketti`): yangi xom format va Приход/Уход juftlash (6.1-bo'lim), sxema o'zgardi.
+
 ---
 
 ## 11. Ochiq masalalar (keyingi ishlar)
@@ -186,6 +211,10 @@ npm run build
 6. **Tungi smena mantig'i** o'rta nuqta qoidasiga asoslangan. Haqiqiy tungi smena ma'lumotida tekshirib ko'rish kerak.
 7. **Agent** o'z holatini bazaga yozmaydi. Sozlamalardagi holat sayt tomonidagi sinxronizatsiya natijasi.
 8. **Vaqt mintaqasi:** ISAPI rejimida `+05:00` qattiq yozilgan.
+9. **Agent `isapi` rejimi** hamon eski formatdagi (birinchi/oxirgi) HTML yasaydi; `folder` rejimi har ikki formatni o'tkazadi (`file_month()` yangi formatda ham oyni to'g'ri topadi).
+10. **Namuna (2026-09) eslatmasi:** Приход/Уход tugmalari 26.09 dan ishlatila boshlagan, undan oldingi kunlar faqat «Нет» — yangi qoida bo'yicha «kelmagan». Bu oy uchun to'liq hisob mantiqsiz chiqadi; yangi format keyingi oydan to'g'ri ishlaydi.
+11. **Qurilma tugma nomlari:** «Tanaffusga» = «Приход при перерыве», «Qaytdim» = «Уход при перерыве» — teskari ko'rinadi. Tanaffus qat'iy «Уход при перерыве → Приход при перерыве» tartibida qidiriladi; agar xodimlar nomga qarab bossa, tanaffus ayrilmaydi (izohda ko'rinadi) — qurilmada nomlarni to'g'rilash kerak.
+12. **Oy chegarasi:** oxirgi kuni boshlangan tungi smenaning Уход'i keyingi oy faylida bo'ladi — o'tgan oyda «Ketaman bosilmagan» chiqadi.
 
 ---
 
