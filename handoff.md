@@ -154,6 +154,10 @@ Xom punchlar (bitta qator = bitta punch). Parser formatni sarlavhadagi «Вре�
 
 **Sutkalik smena (24 soat):** ishchi formasida «Sutkalik smena» va «Oyiga sutkalar soni» (`employees.duty_24h`, `duty_days`). Bir sutka = bitta smena (Приход sanasiga, Уход ertasi kuni, juftlik ≤ 30 soat); dam olish/bayram, overtime va kelmagan kun jarimasi yo'q; fix: oylik ÷ kutilgan sutkalar × ishlagan sutkalar, kunbay: sutka × kunlik summa. Faqat xom formatda.
 
+**Ikki xil smena (kunduzi/kechasi):** ishchi formasida tumbler (`employees.two_shifts`, oyiga smenalar soni — `duty_days`). Jadval hisobga olinmaydi, faqat Приход/Уход: Приход bugun 17:00, Уход ertasi 08:20 — bitta smena (Приход sanasiga, juftlik ≤ 18 soat). Kechikish, overtime, dam olish kuni va kelmagan kun jarimasi yo'q. Fix: oylik ÷ kutilgan smenalar × ishlagan smenalar; kunbay: smena × summa.
+
+**Guruh stavkalari:** Ishchilar → «Guruh stavkalari» (tungi/kunduzgi hamshira, farrosh; guruh qo'shish/o'chirish mumkin). Guruhga xodimlar tanlanadi, tur (oylik / smena uchun = kunbay) va summa kiritiladi; «Saqlash» tanlangan xodimlarning oyligini shunga o'zgartiradi. Guruhlar `settings.rate_groups` da saqlanadi; xodim bitta guruhda bo'ladi.
+
 **Soatbay** UI dan olib tashlandi (forma, filtr); hisoblash dvigateli eski soatbay ishchilar uchun saqlangan.
 
 ⚠️ **Bu o'zgarish sxemani o'zgartiradi — `supabase/schema.sql` ni qayta ishga tushiring** (deploydan oldin): yangi ustunlar `sessions`, `issues`, `replace_report_calculations` yangi imzo (eski 3 argumentli o'chiriladi). Sxema yangilanmagan bo'lsa, xom format saqlanmaydi va «schema.sql ni qayta ishga tushiring» xatosi chiqadi (juftliklar jimgina yo'qolmaydi). Eski format bunga bog'liq emas.
@@ -182,7 +186,7 @@ Xom punchlar (bitta qator = bitta punch). Parser formatni sarlavhadagi «Вре�
 
 ```bash
 npm install
-npm test        # 155 ta unit test
+npm test        # 162 ta unit test
 npm run lint    # ESLint
 npm run build
 ```

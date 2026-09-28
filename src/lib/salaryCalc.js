@@ -105,6 +105,7 @@ export function buildShifts(records, { workStart, workEnd }) {
 const DEDUPE_SEC = 120 // bir xil holatdagi ketma-ket bosishlar shu oraliqda bitta hisoblanadi
 const MIN_MAX_SESSION = 16 * 60 // juftlik shundan uzun bo'lmaydi (yoki jadval + 4 soat)
 const DUTY_MAX_SESSION = 30 * 60 // sutkalik smena: 24 soat + 6 soat zaxira
+const FREE_MAX_SESSION = 18 * 60 // ikki xil smena (jadvalsiz): juftlik 18 soatgacha
 const NIGHT_MORNING_END = 10 * 60 // tungi smena: ertalabki 10:00 gacha bo'lgan punchlar oldingi kun smenasiga tegishli (faqat «Нет» ko'rsatish uchun)
 
 const dayNumber = (date) => {
@@ -134,10 +135,11 @@ export function maxSessionMinutes(workStart, workEnd) {
  *  - Уход bosilmagan Приход, Приход'siz Уход, juftlanmagan tanaffus — hisoblanmaydi, `issues` ga yoziladi;
  *  - tungi jadvalli ishchida "o'rta nuqta"dan oldingi Приход/Уход oldingi kun smenasiga tegishli.
  */
-export function buildShiftsFromPunches(punches, { workStart, workEnd, duty24 = false }) {
-  const night = workEnd < workStart
+export function buildShiftsFromPunches(punches, { workStart, workEnd, duty24 = false, free = false }) {
+  // free: jadvalsiz (ikki xil smena) — faqat Приход/Уход; juftlik har doim Приход sanasiga tegishli
+  const night = !free && workEnd < workStart
   const mid = (workStart + workEnd) / 2
-  const cap = (duty24 ? DUTY_MAX_SESSION : maxSessionMinutes(workStart, workEnd)) * 60
+  const cap = (free ? FREE_MAX_SESSION : duty24 ? DUTY_MAX_SESSION : maxSessionMinutes(workStart, workEnd)) * 60
 
   // Kun guruhi: kunduzgi — kalendar sana; tungi jadvalda ertalabki 10:00 gacha — oldingi kun smenasi
   const groups = new Map() // sana -> { stateful, none: [daqiqalar (guruh sanasi 00:00 dan)] }
@@ -301,6 +303,9 @@ export function calcEmployeeSalary({ employee, records = [], settings, advances 
   const kind = recordKind(records)
   // Sutkalik smena (24 soat): faqat xom punchlar/juftliklar rejimida; dam olish kuni, overtime va kelmagan kun jarimasi yo'q
   const duty = !!employee.duty_24h && kind !== 'legacy'
+  // Ikki xil smena (kunduzi/kechasi): jadval yo'q, faqat Приход/Уход; kechikish va overtime yo'q
+  const free = !duty && !!employee.two_shifts && kind !== 'legacy'
+  const shiftBased = duty || free // smena soni bo'yicha hisob: dam olish kuni, kelmagan kun jarimasi yo'q
   const weekendDays = employeeRestDays(employee, settings)
   const grace = numOr(employee.grace_period_min, settings.grace_period_min)
   const penaltyPerMin = numOr(employee.late_penalty_per_min, settings.late_penalty_per_min)
@@ -318,11 +323,11 @@ export function calcEmployeeSalary({ employee, records = [], settings, advances 
 
   // Bayram kunlari — jarima qilinmaydi (haq to'lanadi), dam kuni kabi ishlanadi
   const holidaySet = new Set(settings.holidays || [])
-  const isRestDay = (dateStr) => !duty && (weekendDays.includes(weekdayOfDate(dateStr)) || holidaySet.has(dateStr))
+  const isRestDay = (dateStr) => !shiftBased && (weekendDays.includes(weekdayOfDate(dateStr)) || holidaySet.has(dateStr))
 
   // Smenalar — faqat shu oy (fayldagi boshqa oy yozuvlari hisobga olinmaydi)
   const allShifts = kind === 'punches'
-    ? buildShiftsFromPunches(records, { workStart, workEnd, duty24: duty })
+    ? buildShiftsFromPunches(records, { workStart, workEnd, duty24: duty, free })
     : kind === 'sessions' ? shiftsFromSessions(records) : buildShifts(records, { workStart, workEnd })
   const shifts = allShifts.filter((s) => s.date.startsWith(`${month}-`))
 
@@ -331,7 +336,7 @@ export function calcEmployeeSalary({ employee, records = [], settings, advances 
   const totalDays = daysInMonth(month)
   let workingDaysPresent = 0
   const absentDates = []
-  if (duty) {
+  if (shiftBased) {
     workingDaysPresent = shifts.filter((s) => s.inMin != null).length
   } else {
     for (let d = 1; d <= totalDays; d++) {
@@ -342,7 +347,7 @@ export function calcEmployeeSalary({ employee, records = [], settings, advances 
     }
   }
   // sutkalik: kutilgan sutkalar soni ishchi sozlamasidan (kelmagan kun jarimasi yo'q)
-  const expected = duty ? (Number(employee.duty_days) || 10) : workingDaysPresent + absentDates.length
+  const expected = shiftBased ? (Number(employee.duty_days) || 10) : workingDaysPresent + absentDates.length
 
   // --- Kunlik hisob (attendance + soatlar) ---
   const days = []
@@ -368,8 +373,8 @@ export function calcEmployeeSalary({ employee, records = [], settings, advances 
         presentDaysTotal++
         worked = s.sessions.reduce((sum, x) => sum + (x.out - x.in), 0)
         if (!isWeekend) {
-          late = Math.max(0, inMin - workStart - grace)
-          ot = duty ? 0 : Math.min(Math.max(0, outMin - workEndAdj), Math.max(0, worked - scheduledMinutes))
+          late = free ? 0 : Math.max(0, inMin - workStart - grace)
+          ot = shiftBased ? 0 : Math.min(Math.max(0, outMin - workEndAdj), Math.max(0, worked - scheduledMinutes))
         }
       }
     } else if (inMin != null) {
@@ -495,6 +500,7 @@ export function calcEmployeeSalary({ employee, records = [], settings, advances 
     notes.push(`${incompleteDays.length} kun faqat bitta punch (kirish yoki chiqish yo'q) — to'liq kun hisoblandi, tekshiring (${incompleteDays.map(formatDateShort).join(', ')})`)
   }
   if (duty) notes.unshift(`Sutkalik smena: ${workingDaysPresent} sutka ishladi (kutilgan ${expected})`)
+  if (free) notes.unshift(`Ikki xil smena: ${workingDaysPresent} smena ishladi (kutilgan ${expected})`)
   if (kind !== 'legacy') {
     const by = (type) => days.flatMap((d) => (d.issues || []).filter((i) => i.type === type).map((i) => ({ d, i })))
     const at = ({ d, i }) => `${formatDateShort(d.date)}${i.at != null ? ` ${clock(i.at)}${i.last != null && i.last !== i.at ? `–${clock(i.last)}` : ''}` : ''}`

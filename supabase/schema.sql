@@ -44,6 +44,8 @@ alter table public.employees add column if not exists ivms_person_id       text;
 -- Sutkalik smena (24 soat): bir sutka = bitta smena; duty_days — oyiga kutilgan sutkalar soni
 alter table public.employees add column if not exists duty_24h             boolean not null default false;
 alter table public.employees add column if not exists duty_days            integer;
+-- Ikki xil smena (kunduzi/kechasi): jadvalsiz, faqat Приход/Уход bo'yicha; duty_days — oyiga kutilgan smenalar
+alter table public.employees add column if not exists two_shifts           boolean not null default false;
 
 -- IVMS ID bo'yicha moslash (bir xil ismlilarni ajratish uchun) — takrorlanmas
 create unique index if not exists employees_ivms_person_id_key

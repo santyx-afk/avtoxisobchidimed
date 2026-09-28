@@ -7,6 +7,7 @@ export const DEFAULT_SETTINGS = {
   weekend_multiplier: 2, // dam olish kuni koeffitsienti
   weekend_days: [0], // 0=Yakshanba, 6=Shanba (bir nechta bo'lishi mumkin)
   holidays: [], // bayram kunlari ['YYYY-MM-DD', ...] — jarima qilinmaydi, haq to'lanadi
+  rate_groups: [], // guruh stavkalari (tungi/kunduzgi hamshira, farrosh...): [{id,name,type,amount,employee_ids}]
   locked_months: [], // qulflangan (yopilgan) oylar ['YYYY-MM', ...] — o'zgartirib bo'lmaydi
   agent: {
     enabled: false,

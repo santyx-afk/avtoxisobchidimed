@@ -12,7 +12,7 @@ const pidOf = (v) => String(v ?? '').trim()
 const TERM_KEYS = [
   'calc_type', 'monthly_salary', 'hourly_rate', 'daily_rate', 'work_start', 'work_end', 'lunch_minutes',
   'work_days', 'grace_period_min', 'late_penalty_per_min', 'overtime_multiplier', 'weekend_multiplier',
-  'duty_24h', 'duty_days',
+  'duty_24h', 'duty_days', 'two_shifts',
 ]
 const SETTING_KEYS = [
   'late_penalty_per_min', 'grace_period_min', 'overtime_multiplier', 'weekend_multiplier', 'weekend_days', 'holidays',

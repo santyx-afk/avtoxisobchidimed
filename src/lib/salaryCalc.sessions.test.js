@@ -268,3 +268,39 @@ describe('sutkalik smena (24 soat)', () => {
     expect(res.summary.work_days).toBe(0)
   })
 })
+
+describe('ikki xil smena (kunduzi/kechasi) — faqat Приход/Уход', () => {
+  const two = { id: 't', calc_type: 'fix', monthly_salary: 3000000, work_start: '08:00', work_end: '17:00', lunch_minutes: 60, two_shifts: true, duty_days: 15 }
+  const s0 = { ...settings, weekend_days: [0] }
+
+  it('kunduzgi va tungi smena aralash: har biri Приход sanasiga tegishli smena', () => {
+    const res = calc([
+      p('2026-09-08', '08:05:00', 'in'), p('2026-09-08', '17:10:00', 'out'),
+      p('2026-09-10', '17:00:00', 'in'), p('2026-09-11', '08:20:00', 'out'), // Приход 17:00, Уход ertasi 08:20
+    ], two, s0)
+    expect(day(res, '2026-09-10').sessions).toEqual([{ in: 1020, out: 1440 + 500 }])
+    expect(res.summary.work_days).toBe(2)
+    expect(res.days).toHaveLength(2)
+  })
+
+  it("kechikish va overtime yo'q; dam olish kuni ham smena; fix: oylik ÷ smenalar × ishlagan smenalar", () => {
+    const res = calc([
+      p('2026-09-13', '22:00:00', 'in'), p('2026-09-14', '10:30:00', 'out'), // yakshanba kechasi
+    ], two, s0)
+    expect(res.summary.total_late_minutes).toBe(0)
+    expect(res.summary.overtime_pay).toBe(0)
+    expect(res.summary.weekend_pay).toBe(0)
+    expect(res.summary.calculated_salary).toBe(200000) // 3 000 000 / 15 × 1
+    expect(res.summary.notes).toContain('Ikki xil smena: 1 smena ishladi (kutilgan 15)')
+    expect(res.summary.notes).not.toContain('kelmagan')
+  })
+
+  it("kunbay: smena × summa; Уход bosilmagan smena hisoblanmaydi", () => {
+    const res = calc([
+      p('2026-09-08', '20:00:00', 'in'), p('2026-09-09', '08:00:00', 'out'),
+      p('2026-09-10', '20:00:00', 'in'),
+    ], { ...two, calc_type: 'daily', daily_rate: 250000 }, s0)
+    expect(res.summary.calculated_salary).toBe(250000)
+    expect(res.summary.notes).toContain('Ketaman bosilmagan')
+  })
+})
