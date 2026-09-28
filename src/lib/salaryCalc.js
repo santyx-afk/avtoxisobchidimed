@@ -102,7 +102,7 @@ export function buildShifts(records, { workStart, workEnd }) {
 // ---------------------------------------------------------------------------
 // Xom punchlardan (Приход / Уход) juftliklar qurish
 // ---------------------------------------------------------------------------
-const DEDUPE_SEC = 120 // bir xil holatdagi ketma-ket bosishlar shu oraliqda bitta hisoblanadi
+const SPLIT_GAP = 8 * 3600 // oxirgi Уход'dan shuncha vaqt o'tib kelgan Приход — yangi smena (soniya)
 const MIN_MAX_SESSION = 16 * 60 // juftlik shundan uzun bo'lmaydi (yoki jadval + 4 soat)
 const DUTY_MAX_SESSION = 30 * 60 // sutkalik smena: 24 soat + 6 soat zaxira
 const FREE_MAX_SESSION = 18 * 60 // ikki xil smena (jadvalsiz): juftlik 18 soatgacha
@@ -124,16 +124,14 @@ export function maxSessionMinutes(workStart, workEnd) {
  * [{ date, dayOfWeek, sessions: [{in, out}], issues: [{type, at}], inMin, outMin }].
  * in/out — smena sanasining 00:00 idan daqiqalar (out 1440 dan oshishi mumkin).
  *
- * Qoidalar:
- *  - «Нет» punchlar hisobga olinmaydi;
- *  - bir xil holatdagi ketma-ket bosishlar (2 daqiqa ichida): Приход (va Приход при перерыве) —
- *    birinchisi, Уход (va Уход при перерыве) — oxirgisi;
- *  - juftlik = Приход → keyingi Уход, sanasi Приход sanasi (tungi smena ham). Uzun oraliqdagi
- *    (maxSessionMinutes) Уход/Приход eski Приход'ga tegishli emas;
- *  - ochiq Приход turganda yana Приход — takror, birinchisi qoladi;
- *  - Уход при перерыве → Приход при перерыве oralig'i juftlikdan ayriladi (tushlik ayrilmaydi);
- *  - Уход bosilmagan Приход, Приход'siz Уход, juftlanmagan tanaffus — hisoblanmaydi, `issues` ga yoziladi;
- *  - tungi jadvalli ishchida "o'rta nuqta"dan oldingi Приход/Уход oldingi kun smenasiga tegishli.
+ * Faqat Приход/Уход: smena boshlanishi — birinchi Приход, tugashi — oxirgi Уход
+ * (orada bir necha Приход/Уход bo'lsa ham bitta smena; tanaffus/tushlik ayrilmaydi).
+ *  - «Нет» va tanaffus punchlari hisobga olinmaydi;
+ *  - smena sanasi — birinchi Приход sanasi (Уход ertasi kuni bo'lsa ham);
+ *  - oxirgi Уход'dan keyin SPLIT_GAP dan uzoq Приход — yangi smena; smena boshidan `cap` dan uzoq
+ *    punch eski smenaga tegishli emas;
+ *  - Уход bosilmagan smena (Уход umuman yo'q) hisoblanmaydi, Приход'siz Уход hisoblanmaydi — `issues` ga yoziladi;
+ *  - tungi jadvalli ishchida "o'rta nuqta"dan oldingi Приход oldingi kun smenasiga tegishli.
  */
 export function buildShiftsFromPunches(punches, { workStart, workEnd, duty24 = false, free = false }) {
   // free: jadvalsiz (ikki xil smena) — faqat Приход/Уход; juftlik har doim Приход sanasiga tegishli
@@ -149,7 +147,7 @@ export function buildShiftsFromPunches(punches, { workStart, workEnd, duty24 = f
     const min = timeToMinutes(p.time)
     if (min == null) continue
     const sec = dayNumber(p.date) * 86400 + min * 60 + (parseInt(String(p.time).split(':')[2], 10) || 0)
-    const stateful = p.state && p.state !== PUNCH_STATE.NONE
+    const stateful = p.state === PUNCH_STATE.IN || p.state === PUNCH_STATE.OUT // tanaffus punchlari «Нет» kabi
     const early = night && min < NIGHT_MORNING_END
     const gDate = early ? addDays(p.date, -1) : p.date
     if (!groups.has(gDate)) groups.set(gDate, { stateful: false, none: [] })
@@ -160,18 +158,6 @@ export function buildShiftsFromPunches(punches, { workStart, workEnd, duty24 = f
     } else g.none.push(min + (early ? 1440 : 0))
   }
   items.sort((a, b) => a.sec - b.sec)
-
-  // takroriy bosishlarni siqish
-  const clusters = []
-  for (const it of items) {
-    const last = clusters[clusters.length - 1]
-    if (last && last.state === it.state && it.sec - last.lastSec <= DEDUPE_SEC) {
-      last.lastSec = it.sec
-      last.lastItem = it
-    } else clusters.push({ state: it.state, firstItem: it, lastItem: it, lastSec: it.sec })
-  }
-  const punchesList = clusters.map((c) =>
-    (c.state === PUNCH_STATE.IN || c.state === PUNCH_STATE.BREAK_IN ? c.firstItem : c.lastItem))
 
   const shifts = new Map()
   const shiftOf = (date) => {
@@ -185,49 +171,30 @@ export function buildShiftsFromPunches(punches, { workStart, workEnd, duty24 = f
   const minutesOn = (date, sec) => Math.floor((sec - dayNumber(date) * 86400) / 60)
   const issue = (date, type, sec) => shiftOf(date).issues.push({ type, at: minutesOn(date, sec) })
 
-  let open = null // { sec, item, date, breaks: [[from, to]], brk: sec | null }
-  const closeSession = (outSec) => {
-    const segs = []
-    let cursor = open.sec
-    for (const [from, to] of open.breaks) {
-      if (from > cursor) segs.push([cursor, from])
-      cursor = Math.max(cursor, to)
+  // Smenani yopadi: birinchi Приход → oxirgi Уход (Уход bo'lmasa — yopilmagan)
+  let cur = null // { sec, date, lastOut }
+  const finish = () => {
+    if (!cur) return
+    if (cur.lastOut == null) issue(cur.date, DAY_ISSUE.UNCLOSED_IN, cur.sec)
+    else {
+      const a = minutesOn(cur.date, cur.sec)
+      const b = minutesOn(cur.date, cur.lastOut)
+      if (b > a) shiftOf(cur.date).sessions.push({ in: a, out: b })
+      else issue(cur.date, DAY_ISSUE.SHORT, cur.sec)
     }
-    if (outSec > cursor) segs.push([cursor, outSec])
-    if (open.brk != null) issue(open.date, DAY_ISSUE.ORPHAN_BREAK, open.brk) // qaytish bosilmagan
-    const out = segs
-      .map(([a, b]) => ({ in: minutesOn(open.date, a), out: minutesOn(open.date, b) }))
-      .filter((x) => x.out > x.in)
-    if (out.length) shiftOf(open.date).sessions.push(...out)
-    else issue(open.date, DAY_ISSUE.SHORT, open.sec)
-    open = null
-  }
-  const dropStale = (sec) => {
-    if (open && sec - open.sec > cap) {
-      issue(open.date, DAY_ISSUE.UNCLOSED_IN, open.sec)
-      open = null
-    }
+    cur = null
   }
 
-  for (const it of punchesList) {
-    dropStale(it.sec)
-    const date = anchorOf(it)
+  for (const it of items) {
+    if (it.state !== PUNCH_STATE.IN && it.state !== PUNCH_STATE.OUT) continue // tanaffus punchlari e'tiborsiz
+    if (cur && it.sec - cur.sec > cap) finish() // juda uzoq — eski smenaga tegishli emas
     if (it.state === PUNCH_STATE.IN) {
-      if (!open) open = { sec: it.sec, date, breaks: [], brk: null }
-    } else if (it.state === PUNCH_STATE.OUT) {
-      if (open) closeSession(it.sec)
-      else issue(date, DAY_ISSUE.ORPHAN_OUT, it.sec)
-    } else if (it.state === PUNCH_STATE.BREAK_OUT) {
-      if (!open) issue(date, DAY_ISSUE.ORPHAN_BREAK, it.sec)
-      else if (open.brk == null) open.brk = it.sec
-    } else if (it.state === PUNCH_STATE.BREAK_IN) {
-      if (open && open.brk != null) {
-        open.breaks.push([open.brk, it.sec])
-        open.brk = null
-      } else issue(date, DAY_ISSUE.ORPHAN_BREAK, it.sec)
-    }
+      if (cur && cur.lastOut != null && it.sec - cur.lastOut > SPLIT_GAP) finish() // yangi smena
+      if (!cur) cur = { sec: it.sec, date: anchorOf(it), lastOut: null }
+    } else if (cur) cur.lastOut = it.sec
+    else issue(anchorOf(it), DAY_ISSUE.ORPHAN_OUT, it.sec)
   }
-  if (open) issue(open.date, DAY_ISSUE.UNCLOSED_IN, open.sec)
+  finish()
 
   // Faqat «Нет» punch bo'lgan kunlar: shu kundagi birinchi va oxirgi punch ko'rsatiladi
   for (const [date, g] of groups) {

@@ -180,8 +180,8 @@ describe('xom format (Приход / Уход): saqlash, qayta hisoblash, ogohla
     const { computed } = await setup('Xom Ishchi', '901')
     const { summary } = computed.results[0]
     expect(summary.work_days).toBe(1)
-    expect(summary.total_hours).toBe(8) // 12:00 − 08:00 + 17:00 − 13:00, tushlik ayrilmaydi
-    expect(computed.allDays.find((d) => d.date === `${M}-05`).sessions).toHaveLength(2)
+    expect(summary.total_hours).toBe(9) // birinchi Приход 08:00 → oxirgi Уход 17:00, orada tushlik ayrilmaydi
+    expect(computed.allDays.find((d) => d.date === `${M}-05`).sessions).toEqual([{ in: 480, out: 1020 }])
     expect(summary.notes).toContain('Ketaman bosilmagan')
   })
 
@@ -198,7 +198,7 @@ describe('xom format (Приход / Уход): saqlash, qayta hisoblash, ogohla
       month: M, fileName: 'raw.xls', source: 'manual', allDays: computed.allDays, allSummaries: computed.allSummaries, settings: s,
     })
     const saved = (await db.getAttendanceByReport((await db.getReportByMonth(M)).id)).find((a) => a.date === `${M}-05`)
-    expect(saved.sessions).toEqual([{ in: 480, out: 720 }, { in: 780, out: 1020 }])
+    expect(saved.sessions).toEqual([{ in: 480, out: 1020 }])
 
     const before = await calcOf(e.id)
     await db.createAdvance({ employee_id: e.id, amount: 100000, date: `${M}-10`, reason: 'x', month: M })
@@ -210,10 +210,10 @@ describe('xom format (Приход / Уход): saqlash, qayta hisoblash, ogohla
 
     await db.updateEmployee(e.id, { hourly_rate: 90000 })
     await recalculateMonth(M, { useCurrent: true })
-    expect((await calcOf(e.id)).calculated_salary).toBe(8 * 90000)
+    expect((await calcOf(e.id)).calculated_salary).toBe(9 * 90000)
     // kunlik qatorlar ham yangilandi va juftliklar saqlanib qoldi
     const rows = await db.getAttendanceByReport((await db.getReportByMonth(M)).id)
-    expect(rows.find((a) => a.date === `${M}-05`).sessions).toHaveLength(2)
+    expect(rows.find((a) => a.date === `${M}-05`).sessions).toHaveLength(1)
   })
 })
 
@@ -251,6 +251,33 @@ describe("qo'lda tuzatish (dayOverrides)", () => {
       { employeeId: e.id, date: `${M}-05`, sessions: [] },
     ] })
     expect((await calc()).total_hours).toBe(9 + 4) // 06-kun 08:00–17:00 (9 soat) + 07-kun 4 soat
+  })
+})
+
+describe("qo'lda tuzatish: chiqish ertasi kuni (sana + soat)", () => {
+  const M = '2099-12'
+  it("faqat «Нет» kun: Приход 17:00, Уход ertasi 08:20 — smena Приход sanasiga yoziladi, ertasi kuni qatori bo'shatiladi", async () => {
+    const e = await db.createEmployee({
+      name: 'Kechki Ishchi', ivms_person_id: '960', calc_type: 'fix', monthly_salary: 3000000, work_start: '08:00', work_end: '17:00',
+      two_shifts: true, duty_days: 15,
+    })
+    const s = await db.getSettings()
+    const parsed = parseIvmsHtml(rawHtml([
+      ['960', 'Kechki Ishchi', `${M}-10 17:00:00`, 'none'], ['960', 'Kechki Ishchi', `${M}-11 08:20:00`, 'none'],
+    ]))
+    const computed = computeReport({ records: parsed.records, month: M, employees: [e], settings: s })
+    await saveReport({ month: M, fileName: 'x.xls', source: 'manual', allDays: computed.allDays, allSummaries: computed.allSummaries, settings: s })
+    await recalculateMonth(M, { dayOverrides: [
+      { employeeId: e.id, date: `${M}-10`, sessions: [{ in: 1020, out: 1940 }] },
+      { employeeId: e.id, date: `${M}-11`, sessions: [] },
+    ] })
+    const calc = (await db.getCalculationsByMonth(M)).find((c) => c.employee_id === e.id)
+    expect(calc.work_days).toBe(1)
+    expect(calc.total_hours).toBe(15.33) // 17:00 → ertasi 08:20
+    expect(calc.calculated_salary).toBe(200000) // 3 000 000 / 15 × 1 smena
+    const rows = await db.getAttendanceByReport((await db.getReportByMonth(M)).id)
+    expect(rows.find((a) => a.date === `${M}-10`).sessions).toEqual([{ in: 1020, out: 1940 }])
+    expect(rows.find((a) => a.date === `${M}-11`).issues).toEqual([{ type: 'manual', at: null }])
   })
 })
 

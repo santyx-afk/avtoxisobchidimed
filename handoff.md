@@ -131,24 +131,21 @@ Authentication → Sign In / Providers bo'limida **"Allow new users to sign up" 
 
 Xom punchlar (bitta qator = bitta punch). Parser formatni sarlavhadagi «Время» + «Состояние посещения» bo'yicha o'zi aniqlaydi; eski «Punch Report» o'zgarmagan (birinchi kirish / oxirgi chiqish, tushlik ayriladi). ID oldidagi apostrof (`'44`) olib tashlanadi.
 
-**Juftlash qoidalari** (`buildShiftsFromPunches`):
-- «Нет» punchlar hisobga olinmaydi.
-- Ish vaqti = har bir Приход → keyingi Уход; kundagi barcha juftliklar qo'shiladi. Juftlik **Приход sanasiga** tegishli (tungi smena ham).
-- Bir xil holatdagi ketma-ket bosishlar (2 daqiqa ichida): Приход — birinchisi, Уход — oxirgisi.
-- Tanaffus: «Уход при перерыве» → «Приход при перерыве» oralig'i ayriladi. **Faqat shu tartib**; juftlanmagan tanaffus punchi e'tiborsiz va izoh yoziladi.
-- Уход bosilmagan Приход — juftlik **hisoblanmaydi**; kunda to'liq juftlik bo'lmasa kun «kelmagan», izohda «Ketaman bosilmagan». Приход'siz Уход ham hisoblanmaydi (izoh).
-- Ochiq Приход turganda ikkinchi Приход — takror (birinchisi qoladi). Ochiq Приход `max(16 soat, jadval + 4 soat)` dan eski bo'lsa yopilmagan hisoblanadi (unutilgan Уход keyingi kunga ulanmaydi).
-- 1 daqiqadan qisqa juftlik (sinov bosishi) hisoblanmaydi.
-- Tungi jadvalli xodimda (tugash < boshlanish) «o'rta nuqta»dan oldingi punch oldingi kun smenasiga tegishli.
-- **Tushlik (`lunch_minutes`) bu formatda ishlatilmaydi**: ishlangan vaqt = juftliklar − tanaffus; overtime chegarasi ham tushliksiz jadvaldan.
-- Kechikish = kunning birinchi Приход vaqti − work_start − grace. Overtime formulasi o'zgarmagan, lekin haqiqiy ishlangan daqiqalardan hisoblanadi.
+**Qoida (faqat Приход/Уход)** (`buildShiftsFromPunches`):
+- Faqat «Приход» va «Уход» hisobga olinadi; «Нет» va tanaffus punchlari e'tiborsiz.
+- Smena = **birinchi Приход → oxirgi Уход**. Kunda bir necha Приход/Уход bo'lsa ham bitta smena; orada tanaffus/tushlik **ayrilmaydi**. Smena sanasi — birinchi Приход sanasi (Уход ertasi kuni bo'lsa ham, masalan Приход 17:00, Уход 08:20).
+- Oxirgi Уход'dan 8 soatdan keyin kelgan Приход — yangi smena. Smena boshidan `max(16 soat, jadval + 4 soat)` (sutkalik: 30, ikki xil smena: 18 soat) dan uzoq punch eski smenaga tegishli emas.
+- Уход bosilmagan smena hisoblanmaydi («Ketaman bosilmagan», kun «kelmagan»); Приход'siz Уход hisoblanmaydi (izoh). 1 daqiqadan qisqa smena hisoblanmaydi.
+- Tungi jadvalli xodimda «o'rta nuqta»dan oldingi (masalan 00:10) Приход oldingi kun smenasiga tegishli.
+- **Tushlik (`lunch_minutes`) bu formatda ishlatilmaydi**; overtime chegarasi tushliksiz jadvaldan.
+- Kechikish = kunning birinchi Приход vaqti − work_start − grace. Overtime formulasi o'zgarmagan, haqiqiy daqiqalardan.
 - Faqat «Нет» bo'lgan kun — kelmagan (dam olish kunida izoh yozilmaydi).
 
 **Saqlash:** `attendance_records.sessions` (`[{in,out}]`, smena sanasi 00:00 dan daqiqalar) va `issues` (`[{type,at}]`). `sessions IS NULL` — eski Punch Report qatori. Snapshot / avans / «Qayta hisoblash» saqlangan juftliklardan ishlaydi (punchlar qayta kerak emas); xom format oyida kunlik qatorlar ham qayta yoziladi (`replace_report_calculations(..., p_attendance)`).
 
 **UI:** yuklashda format, yozuvlar soni va ogohlantirishlar (yopilmagan juftliklar, faqat «Нет» kunlar, Приход'siz Уход, juftlanmagan tanaffus); xodim tafsilotida kunlik juftliklar (`08:02–13:10, 14:00–18:05`) va izoh belgilari.
 
-**Qo'lda tuzatish:** «Oylik hisoblash» sahifasida xodim tafsilotida (xom format oyi, oy qulflanmagan bo'lsa) kun qatoridagi qalamcha bilan juftliklar kiritiladi/o'zgartiriladi/o'chiriladi, «Kun qo'shish» bilan yangi kun qo'shiladi. Saqlangach oy saqlangan juftliklardan qayta hisoblanadi (`recalculateMonth(month, { dayOverrides })`); kunda «Qo'lda tuzatilgan» belgisi va izoh qoladi. Bo'sh juftliklar — kun «kelmagan». Fayl qayta yuklansa, qo'lda tuzatishlar yo'qoladi (oy qayta yoziladi).
+**Qo'lda tuzatish:** «Oylik hisoblash» sahifasida xodim tafsilotida (xom format oyi, oy qulflanmagan bo'lsa) kun qatoridagi qalamcha bilan juftliklar kiritiladi/o'zgartiriladi/o'chiriladi, «Kun qo'shish» bilan yangi kun qo'shiladi. Tuzatishda kirish va chiqish **sana + soat** bilan kiritiladi (chiqish ertasi kuni bo'lishi mumkin); smena kirish sanasiga yoziladi. Saqlangach oy saqlangan smenalardan qayta hisoblanadi (`recalculateMonth(month, { dayOverrides })`); kunda «Qo'lda tuzatilgan» belgisi va izoh qoladi. Kirish va chiqish bo'sh — kun «kelmagan». Fayl qayta yuklansa, qo'lda tuzatishlar yo'qoladi (oy qayta yoziladi).
 
 **Muammolarni ko'rish va tuzatish:** «Oylik hisoblash» sahifasidagi ogohlantirishlar (yopilmagan juftlik, faqat «Нет», Приход'siz Уход, tanaffus) bosiladi — ishchi/kun ro'yxati ochiladi, «Tuzatish» shu kun tuzatish oynasini darrov ochadi (mavjud vaqtlar oldindan to'ldiriladi). Faqat «Нет» kunda o'sha kundagi birinchi va oxirgi punch ko'rsatiladi; tungi jadvalli xodimda kechqurundan ertasi kuni 10:00 gacha bo'lgan punchlar bitta smena hisoblanadi.
 
@@ -186,7 +183,7 @@ Xom punchlar (bitta qator = bitta punch). Parser formatni sarlavhadagi «Вре�
 
 ```bash
 npm install
-npm test        # 162 ta unit test
+npm test        # 163 ta unit test
 npm run lint    # ESLint
 npm run build
 ```

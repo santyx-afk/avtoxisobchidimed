@@ -15,54 +15,52 @@ const calc = (records, employee = hourly, s = settings) =>
   calcEmployeeSalary({ employee, settings: s, month: '2026-09', records })
 const day = (res, date) => res.days.find((d) => d.date === date)
 
-describe('juftlash: bir necha juftlikli kun', () => {
+describe('smena = birinchi Приход → oxirgi Уход', () => {
   const res = calc([
     p(D8, '08:02:10', 'in'), p(D8, '13:10:05', 'out'), p(D8, '14:00:00', 'in'), p(D8, '18:05:30', 'out'),
   ])
 
-  it('juftliklar alohida saqlanadi va yig\'iladi', () => {
-    expect(day(res, D8).sessions).toEqual([{ in: 482, out: 790 }, { in: 840, out: 1085 }])
-    expect(day(res, D8).worked_minutes).toBe(308 + 245)
+  it('kunda bir nechta Приход/Уход — bitta smena: birinchi Приход dan oxirgi Уход gacha', () => {
+    expect(day(res, D8).sessions).toEqual([{ in: 482, out: 1085 }])
+    expect(day(res, D8).worked_minutes).toBe(603) // orada tanaffus/tushlik ayrilmaydi
     expect(day(res, D8).check_in).toBe('08:02:00')
     expect(day(res, D8).check_out).toBe('18:05:00')
   })
 
-  it("tushlik (lunch_minutes) ayrilmaydi; overtime haqiqiy daqiqalardan (18:05 − 17:00, jadval 9 soat)", () => {
-    expect(day(res, D8).overtime_minutes).toBe(13) // min(65, 553 − 540)
+  it('overtime — haqiqiy daqiqalardan (18:05 − 17:00, jadval 9 soat)', () => {
+    expect(day(res, D8).overtime_minutes).toBe(63) // min(65, 603 − 540)
     expect(res.summary.regular_hours).toBe(9)
-    expect(res.summary.overtime_pay).toBe(19500) // 13/60 × 60000 × 1.5
-    expect(res.summary.net_salary).toBe(540000 + 19500)
+    expect(res.summary.overtime_pay).toBe(94500) // 63/60 × 60000 × 1.5
   })
 
-  it('kechikish — birinchi Приход bo\'yicha (08:02, grace 5 — kechikish yo\'q)', () => {
+  it("kechikish — kunning birinchi Приход i bo'yicha (08:02, grace 5 — kechikish yo'q)", () => {
     expect(res.summary.total_late_minutes).toBe(0)
     const late = calc([p(D8, '08:20:00', 'in'), p(D8, '12:00:00', 'out'), p(D8, '13:00:00', 'in'), p(D8, '17:00:00', 'out')])
-    expect(late.summary.total_late_minutes).toBe(15) // 20 − grace 5, ikkinchi juftlik hisobga kirmaydi
+    expect(late.summary.total_late_minutes).toBe(15) // 20 − grace 5
   })
-})
 
-describe('juftlash: tanaffus (Уход при перерыве → Приход при перерыве)', () => {
-  it('tanaffus ish vaqtidan ayriladi', () => {
-    const res = calc([
+  it("tanaffus punchlari e'tiborsiz: faqat Приход/Уход bo'yicha", () => {
+    const r = calc([
       p(D8, '08:00:00', 'in'), p(D8, '12:00:00', 'break_out'), p(D8, '12:30:00', 'break_in'), p(D8, '17:00:00', 'out'),
     ])
-    expect(day(res, D8).sessions).toEqual([{ in: 480, out: 720 }, { in: 750, out: 1020 }])
-    expect(day(res, D8).worked_minutes).toBe(510)
+    expect(day(r, D8).sessions).toEqual([{ in: 480, out: 1020 }])
+    expect(day(r, D8).issues).toEqual([])
+    expect(calc([p(D8, '09:00:00', 'break_out')]).summary.work_days).toBe(0)
   })
 
-  it("teskari tartib (Приход при перерыве → Уход при перерыве) tanaffus emas: ayrilmaydi, izoh yoziladi", () => {
-    const res = calc([
-      p(D8, '08:00:00', 'in'), p(D8, '12:00:00', 'break_in'), p(D8, '12:30:00', 'break_out'), p(D8, '17:00:00', 'out'),
+  it('ketma-ket kunlik smenalar alohida kunlarga tushadi', () => {
+    const r = calc([
+      p(D8, '08:00:00', 'in'), p(D8, '17:00:00', 'out'), p('2026-09-09', '08:00:00', 'in'), p('2026-09-09', '17:00:00', 'out'),
     ])
-    expect(day(res, D8).worked_minutes).toBe(540)
-    expect(day(res, D8).issues.map((i) => i.type)).toEqual(['orphan_break', 'orphan_break'])
-    expect(res.summary.notes).toContain('Juftlanmagan tanaffus')
+    expect(r.summary.work_days).toBe(2)
   })
 
-  it("Приход'siz tanaffus punchi e'tiborsiz (juftlik ochilmaydi)", () => {
-    const res = calc([p(D8, '08:00:00', 'break_out'), p(D8, '09:00:00', 'in'), p(D8, '17:00:00', 'out')])
-    expect(day(res, D8).sessions).toEqual([{ in: 540, out: 1020 }])
-    expect(day(res, D8).issues).toEqual([{ type: 'orphan_break', at: 480 }])
+  it("ketma-ket tungi smenalar (Приход 20:00, Уход ertasi 08:00) — har biri o'z sanasiga", () => {
+    const r = calc([
+      p(D8, '20:00:00', 'in'), p('2026-09-09', '08:00:00', 'out'), p('2026-09-09', '20:00:00', 'in'), p('2026-09-10', '08:00:00', 'out'),
+    ])
+    expect(day(r, D8).sessions).toEqual([{ in: 1200, out: 1920 }])
+    expect(day(r, '2026-09-09').sessions).toEqual([{ in: 1200, out: 1920 }])
   })
 })
 
@@ -114,10 +112,10 @@ describe('juftlash: Уход bosilmagan kun', () => {
     expect(res.summary.calculated_salary).toBe(200000)
   })
 
-  it("to'liq juftlikdan keyingi yopilmagan Приход — faqat o'sha juftlik hisoblanmaydi", () => {
+  it("oxirgi Уход'dan keyingi Приход (Уход'siz) smenani buzmaydi: smena oxirgi Уход gacha", () => {
     const res = calc([p(D8, '08:00:00', 'in'), p(D8, '12:00:00', 'out'), p(D8, '14:00:00', 'in')])
     expect(day(res, D8).sessions).toEqual([{ in: 480, out: 720 }])
-    expect(day(res, D8).issues).toEqual([{ type: 'unclosed_in', at: 840 }])
+    expect(day(res, D8).issues).toEqual([])
     expect(res.summary.work_days).toBe(1)
   })
 

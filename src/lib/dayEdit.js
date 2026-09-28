@@ -1,54 +1,61 @@
-// Kunni qo'lda tuzatish: foydalanuvchi kiritgan "HH:MM" juftliklarini tekshirib, sessions ga aylantiradi
-import { timeToMinutes } from './format'
+// Kunni qo'lda tuzatish: smena = kirish (sana + soat) va chiqish (sana + soat)
+import { addDays } from './format'
 
-const HM_RE = /^\d{1,2}:\d{2}$/
+const STAMP_RE = /^(\d{4}-\d{2}-\d{2})[T ](\d{1,2}):(\d{2})$/
+const MAX_SHIFT_MIN = 36 * 60
 
-/**
- * @param {Array<{in: string, out: string}>} rows kiritilgan juftliklar (bo'sh qatorlar tashlanadi)
- * @param {{night?: boolean}} opts tungi jadvalli ishchida chiqish <= kirish — keyingi kun
- * @returns {Array<{in: number, out: number}>} tartiblangan, kesishmaydigan juftliklar (daqiqalar)
- * @throws {Error} tushunarli xabar bilan
- */
-export function parseSessionsInput(rows, { night = false } = {}) {
-  const out = []
-  for (const [i, r] of (rows || []).entries()) {
-    const a = String(r.in || '').trim()
-    const b = String(r.out || '').trim()
-    if (!a && !b) continue
-    const n = i + 1
-    if (!HM_RE.test(a) || !HM_RE.test(b)) throw new Error(`${n}-juftlik: vaqtni SS:DD ko'rinishida kiriting (masalan 08:00)`)
-    const from = timeToMinutes(a)
-    let to = timeToMinutes(b)
-    if (from > 1439 || to > 1439 || from < 0) throw new Error(`${n}-juftlik: vaqt noto'g'ri`)
-    if (to <= from) {
-      if (!night) throw new Error(`${n}-juftlik: chiqish kirishdan keyin bo'lishi kerak`)
-      to += 1440
-    }
-    out.push({ in: from, out: to })
-  }
-  out.sort((x, y) => x.in - y.in)
-  for (let i = 1; i < out.length; i++) {
-    if (out[i].in < out[i - 1].out) throw new Error('Juftliklar bir-birini kesib o\'tmasligi kerak')
-  }
-  return out
+const dayNumber = (date) => {
+  const [y, m, d] = date.split('-').map(Number)
+  return Date.UTC(y, m - 1, d) / 86400000
+}
+const pad = (n) => String(n).padStart(2, '0')
+const hm = (min) => `${pad(Math.floor((min % 1440) / 60))}:${pad(min % 60)}`
+
+/** Sana + smena sanasi 00:00 dan daqiqalar -> "YYYY-MM-DDTHH:MM" (daqiqa 1440 dan oshsa keyingi kun) */
+function stampOf(date, minutes) {
+  if (minutes == null) return ''
+  return `${addDays(date, Math.floor(minutes / 1440))}T${hm(minutes)}`
 }
 
-const hm = (min) => `${String(Math.floor((min % 1440) / 60)).padStart(2, '0')}:${String(min % 60).padStart(2, '0')}`
-const rowOf = (a, b) => ({ in: a == null ? '' : hm(a), out: b == null ? '' : hm(b) })
+/**
+ * Kiritilgan kirish/chiqish ("YYYY-MM-DDTHH:MM") ni smenaga aylantiradi.
+ * Smena sanasi — kirish sanasi; chiqish ertasi kuni (yoki undan keyin) bo'lishi mumkin.
+ * Ikkalasi bo'sh — kun «kelmagan» (sessions: []).
+ * @returns {{date: string|null, sessions: Array<{in: number, out: number}>}}
+ * @throws {Error} tushunarli xabar bilan
+ */
+export function parseShiftInput({ in: inStr, out: outStr }) {
+  const a = String(inStr || '').trim()
+  const b = String(outStr || '').trim()
+  if (!a && !b) return { date: null, sessions: [] }
+  if (!a || !b) throw new Error("Kirish va chiqishning sana va soatini to'liq kiriting (yoki ikkalasini ham bo'sh qoldiring)")
+  const ma = a.match(STAMP_RE)
+  const mb = b.match(STAMP_RE)
+  if (!ma || !mb) throw new Error('Sana va soatni to\'g\'ri kiriting')
+  const inMin = Number(ma[2]) * 60 + Number(ma[3])
+  const outMin = (dayNumber(mb[1]) - dayNumber(ma[1])) * 1440 + Number(mb[2]) * 60 + Number(mb[3])
+  if (Number(ma[2]) > 23 || Number(mb[2]) > 23 || Number(ma[3]) > 59 || Number(mb[3]) > 59) throw new Error("Soat noto'g'ri")
+  if (outMin <= inMin) throw new Error("Chiqish kirishdan keyin bo'lishi kerak (ertasi kuni bo'lsa, chiqish sanasini o'zgartiring)")
+  if (outMin - inMin > MAX_SHIFT_MIN) throw new Error("Smena 36 soatdan uzun bo'lmasin — sanalarni tekshiring")
+  return { date: ma[1], sessions: [{ in: inMin, out: outMin }] }
+}
 
 /**
- * Tuzatish oynasi uchun boshlang'ich qatorlar: mavjud juftliklar + muammodan ma'lum vaqtlar
- * (yopilmagan Приход — kirish to'ldirilgan, Уход bo'sh; Приход'siz Уход — chiqish to'ldirilgan;
- * faqat «Нет» — birinchi va oxirgi punch taklif sifatida). Bo'sh joyni foydalanuvchi to'ldiradi.
+ * Tuzatish oynasi uchun boshlang'ich kirish/chiqish: mavjud smena (birinchi kirish — oxirgi chiqish),
+ * yopilmagan Приход (kirish yozilgan, chiqish bo'sh), Приход'siz Уход (chiqish yozilgan),
+ * faqat «Нет» (birinchi va oxirgi punch taklif sifatida).
  */
-export function editRowsFor(day) {
-  const rows = (day?.sessions || []).map((x) => rowOf(x.in, x.out))
-  for (const i of day?.issues || []) {
-    if (i.type === 'unclosed_in') rows.push(rowOf(i.at, null))
-    else if (i.type === 'orphan_out') rows.push(rowOf(null, i.at))
-    else if (i.type === 'only_none' && i.at != null) rows.push(rowOf(i.at, i.last))
+export function editPairFor(day) {
+  const date = day?.date
+  if (!date) return { in: '', out: '' }
+  const ss = day.sessions || []
+  if (ss.length) return { in: stampOf(date, ss[0].in), out: stampOf(date, ss[ss.length - 1].out) }
+  for (const i of day.issues || []) {
+    if (i.type === 'unclosed_in') return { in: stampOf(date, i.at), out: '' }
+    if (i.type === 'orphan_out') return { in: '', out: stampOf(date, i.at) }
+    if (i.type === 'only_none' && i.at != null) return { in: stampOf(date, i.at), out: stampOf(date, i.last) }
   }
-  return rows.length ? rows : [rowOf(null, null)]
+  return { in: '', out: '' }
 }
 
 /** Muammo tavsifi (ro'yxatda ko'rsatish uchun) */
