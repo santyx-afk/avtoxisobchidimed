@@ -6,7 +6,7 @@ import {
 import { PageHeader, StatCard, EmptyState, PageLoader } from '../components/ui'
 import DataTable from '../components/DataTable'
 import SalaryDetail from '../components/SalaryDetail'
-import { formatSom, formatSigned, formatMonth, formatDateTime } from '../lib/format'
+import { formatSom, formatSigned, formatMonth, formatDateTime, formatDate } from '../lib/format'
 import { CALC_TYPE_LABEL, REPORT_SOURCE_LABEL, IVMS_FORMAT_LABEL } from '../lib/constants'
 import {
   processIvmsFile, computeReport, saveReport, recalculateMonth, loadAdvancesByEmployee, rememberPersonIds,
@@ -68,6 +68,17 @@ export default function Calculate() {
     } finally {
       setRecalcing(false)
     }
+  }
+
+  // Kunni qo'lda tuzatish (xom format): juftliklar almashtiriladi, oy saqlangan juftliklardan qayta hisoblanadi
+  async function handleSaveDay(employeeId, date, sessions) {
+    if (locked) throw new Error(`${view.month} oyi qulflangan. Tuzatish uchun avval oyni oching.`)
+    await recalculateMonth(view.month, { dayOverrides: [{ employeeId, date, sessions }] })
+    const next = await loadMonthView(view.month)
+    setView(next)
+    const r = next.results.find((x) => x.employee.id === employeeId)
+    if (r) setDetail({ employee: r.employee, summary: r.summary, days: next.daysByEmp.get(employeeId) || [] })
+    setAddedMsg(`${formatDate(date)} kuni tuzatildi va oylik qayta hisoblandi.`)
   }
 
   async function refresh(month) {
@@ -379,6 +390,8 @@ export default function Calculate() {
         summary={detail?.summary}
         days={detail?.days || []}
         month={view?.month}
+        editable={view?.fileInfo?.format === 'raw_records' && !locked}
+        onSaveDay={detail ? (date, sessions) => handleSaveDay(detail.employee.id, date, sessions) : undefined}
       />
     </div>
   )

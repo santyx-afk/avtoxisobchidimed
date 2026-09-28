@@ -148,6 +148,8 @@ Xom punchlar (bitta qator = bitta punch). Parser formatni sarlavhadagi «Вре�
 
 **UI:** yuklashda format, yozuvlar soni va ogohlantirishlar (yopilmagan juftliklar, faqat «Нет» kunlar, Приход'siz Уход, juftlanmagan tanaffus); xodim tafsilotida kunlik juftliklar (`08:02–13:10, 14:00–18:05`) va izoh belgilari.
 
+**Qo'lda tuzatish:** «Oylik hisoblash» sahifasida xodim tafsilotida (xom format oyi, oy qulflanmagan bo'lsa) kun qatoridagi qalamcha bilan juftliklar kiritiladi/o'zgartiriladi/o'chiriladi, «Kun qo'shish» bilan yangi kun qo'shiladi. Saqlangach oy saqlangan juftliklardan qayta hisoblanadi (`recalculateMonth(month, { dayOverrides })`); kunda «Qo'lda tuzatilgan» belgisi va izoh qoladi. Bo'sh juftliklar — kun «kelmagan». Fayl qayta yuklansa, qo'lda tuzatishlar yo'qoladi (oy qayta yoziladi).
+
 ⚠️ **Bu o'zgarish sxemani o'zgartiradi — `supabase/schema.sql` ni qayta ishga tushiring** (deploydan oldin): yangi ustunlar `sessions`, `issues`, `replace_report_calculations` yangi imzo (eski 3 argumentli o'chiriladi). Sxema yangilanmagan bo'lsa, xom format saqlanmaydi va «schema.sql ni qayta ishga tushiring» xatosi chiqadi (juftliklar jimgina yo'qolmaydi). Eski format bunga bog'liq emas.
 
 ## 7. Ma'lumotlar yaxlitligi
@@ -174,7 +176,7 @@ Xom punchlar (bitta qator = bitta punch). Parser formatni sarlavhadagi «Вре�
 
 ```bash
 npm install
-npm test        # 141 ta unit test
+npm test        # 146 ta unit test
 npm run lint    # ESLint
 npm run build
 ```

@@ -1,7 +1,7 @@
 // IVMS hisobotini qayta ishlash: parse -> ishchilarni moslashtirish -> hisoblash -> saqlash
 import { parseIvmsHtml, normalizeName } from './ivmsParser'
 import { calcEmployeeSalary, summarizeDayIssues } from './salaryCalc'
-import { IVMS_FORMAT } from './constants'
+import { IVMS_FORMAT, DAY_ISSUE } from './constants'
 import { formatDateShort } from './format'
 import { isMonthLocked, assertMonthUnlocked } from './monthLock'
 import * as db from './db'
@@ -36,9 +36,10 @@ export async function loadAdvancesByEmployee(month) {
  * useCurrent=false (masalan avans o'zgargach) — hisob paytidagi shartlar (snapshot) saqlanadi,
  * faqat avanslar yangilanadi. useCurrent=true («Qayta hisoblash» tugmasi) — ishchilarning
  * hozirgi oyligi/jadvali va hozirgi sozlamalar qo'llanadi.
+ * dayOverrides — qo'lda tuzatilgan kunlar: [{ employeeId, date, sessions: [{in, out}] }] (xom format oylari).
  * @returns {boolean} report topilib qayta hisoblandimi
  */
-export async function recalculateMonth(month, { useCurrent = false } = {}) {
+export async function recalculateMonth(month, { useCurrent = false, dayOverrides = null } = {}) {
   if (await isMonthLocked(month)) return false // qulflangan oy — o'zgartirilmaydi
   const report = await db.getReportByMonth(month)
   if (!report) return false
@@ -64,7 +65,13 @@ export async function recalculateMonth(month, { useCurrent = false } = {}) {
       ...(Array.isArray(a.sessions) ? { sessions: a.sessions, issues: a.issues || [] } : {}),
     })
   }
-  const sessionMode = attendance.some((a) => Array.isArray(a.sessions))
+  // Qo'lda tuzatilgan kunlar: shu kun juftliklari almashtiriladi, eski izohlar («Ketaman bosilmagan» va h.k.) o'chadi
+  for (const o of dayOverrides || []) {
+    const rest = (byEmp.get(o.employeeId) || []).filter((r) => r.date !== o.date)
+    rest.push({ date: o.date, dayOfWeek: '', sessions: o.sessions, issues: [{ type: DAY_ISSUE.MANUAL, at: null }], anchored: true })
+    byEmp.set(o.employeeId, rest)
+  }
+  const sessionMode = !!dayOverrides?.length || attendance.some((a) => Array.isArray(a.sessions))
   const prevByEmp = new Map(existing.map((c) => [c.employee_id, c]))
   const useSnapshot = !useCurrent && report.settings_snapshot
   const settings = useSnapshot ? { ...currentSettings, ...report.settings_snapshot } : currentSettings

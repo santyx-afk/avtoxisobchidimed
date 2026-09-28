@@ -487,6 +487,8 @@ export function calcEmployeeSalary({ employee, records = [], settings, advances 
     if (onlyNone.length) notes.push(`${onlyNone.length} kun faqat «Нет» punch (Приход/Уход bosilmagan) — kelmagan hisoblandi: ${listPoints(onlyNone.map(at))}`)
     const brk = by(DAY_ISSUE.ORPHAN_BREAK)
     if (brk.length) notes.push(`Juftlanmagan tanaffus punchlari (tanaffus ayrilmadi): ${listPoints(brk.map(at))}`)
+    const manual = by(DAY_ISSUE.MANUAL)
+    if (manual.length) notes.push(`Qo'lda tuzatilgan kunlar: ${listPoints(manual.map(at))}`)
     const short = by(DAY_ISSUE.SHORT)
     if (short.length) notes.push(`1 daqiqadan qisqa juftlik hisoblanmadi: ${listPoints(short.map(at))}`)
   }
