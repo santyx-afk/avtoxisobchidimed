@@ -1,5 +1,8 @@
 import { describe, it, expect } from 'vitest'
-import { parseIvmsHtml, groupRecordsByName, tidyName, normalizeName } from './ivmsParser'
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
+import { parseIvmsHtml, groupRecordsByName, tidyName, normalizeName, cleanPersonId } from './ivmsParser'
+import { rawHtml, RAW_HEADER } from './__fixtures__/rawHtml'
 
 describe('tidyName / normalizeName', () => {
   it('ortiqcha probellarni siqadi va trim qiladi', () => {
@@ -137,5 +140,99 @@ describe('parseIvmsHtml — qayta sinxronlash', () => {
     const res = parseIvmsHtml(SAMPLE.replace(/<tr>\s*<td>№<\/td>[\s\S]*?<\/tr>/, ''))
     expect(res.records).toHaveLength(4)
     expect(res.month).toBe('2026-08')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Xom format: "Отчет об исходных записях"
+// ---------------------------------------------------------------------------
+describe('parseIvmsHtml — format aniqlash', () => {
+  it('Punch Report formatini aniqlaydi', () => {
+    expect(parseIvmsHtml(SAMPLE).format).toBe('punch_report')
+  })
+
+  it('xom formatni "Время" + "Состояние посещения" sarlavhasi bo\'yicha aniqlaydi', () => {
+    const res = parseIvmsHtml(rawHtml([['1', 'Ali', '2026-09-08 08:00:00', 'in']]))
+    expect(res.format).toBe('raw_records')
+    expect(res.records).toHaveLength(1)
+  })
+
+  it("bo'sh kirish — xatosiz", () => {
+    expect(parseIvmsHtml('').records).toHaveLength(0)
+  })
+})
+
+describe('parseIvmsHtml — xom punchlar', () => {
+  const html = rawHtml([
+    ['00000024', 'Ali Valiyev', '2026-09-08 08:02:11', 'in'],
+    ['00000024', 'Ali Valiyev', '2026-09-08 13:10:00', 'out'],
+    ['44', 'Vali Aliyev', '2026-09-08 9:05', 'break_out'],
+    ['44', 'Vali Aliyev', '2026-09-09 00:00:00', 'none'],
+  ])
+  const res = parseIvmsHtml(html)
+
+  it("ID oldidagi apostrofni olib tashlaydi (nollar saqlanadi)", () => {
+    expect(res.records.map((r) => r.personId)).toEqual(['00000024', '00000024', '44', '44'])
+    expect(cleanPersonId("'1")).toBe('1')
+    expect(cleanPersonId('’44')).toBe('44')
+  })
+
+  it('sana, vaqt va holatni ajratadi (soniyasiz vaqt ham)', () => {
+    expect(res.records[0]).toMatchObject({ date: '2026-09-08', time: '08:02:11', state: 'in', name: 'Ali Valiyev' })
+    expect(res.records[2]).toMatchObject({ time: '09:05:00', state: 'break_out' })
+    expect(res.records[3].state).toBe('none')
+  })
+
+  it("oy — eng ko'p uchragan oy; meta yig'indilari", () => {
+    expect(res.month).toBe('2026-09')
+    expect(res.meta.punchCount).toBe(4)
+    expect(res.meta.stateCounts).toEqual({ in: 1, out: 1, break_out: 1, none: 1 })
+    expect(res.meta.statefulDates).toEqual(['2026-09-08'])
+  })
+
+  it('tanilmagan holat «Нет» deb olinadi va sanaladi', () => {
+    const r = parseIvmsHtml(rawHtml([['1', 'Ali', '2026-09-08 08:00:00', 'Boshqa']]))
+    expect(r.records[0].state).toBe('none')
+    expect(r.meta.unknownStates).toBe(1)
+  })
+
+  it("sahifalar orasida takrorlangan sarlavha keyingi yozuvlarni yo'qotmaydi", () => {
+    const repeat = `<tr><td>Отчет об исходных записях</td></tr><tr>${RAW_HEADER.map((h) => `<td>${h}</td>`).join('')}</tr>`
+    const r = parseIvmsHtml(rawHtml(
+      [['1', 'Ali', '2026-09-08 08:00:00', 'in'], ['1', 'Ali', '2026-09-08 17:00:00', 'out'], ['2', 'Vali', '2026-09-08 08:00:00', 'in']],
+      { extra: { 0: repeat } },
+    ))
+    expect(r.records).toHaveLength(3)
+    expect(r.meta.skipped).toBe(0)
+  })
+
+  it("begona qator (\"Page 2\") 1 ta o'tkazib yuborilgan deb sanaladi, keyingi yozuvlar saqlanadi", () => {
+    const r = parseIvmsHtml(rawHtml(
+      [['1', 'Ali', '2026-09-08 08:00:00', 'in'], ['1', 'Ali', '2026-09-08 17:00:00', 'out']],
+      { extra: { 0: '<tr><td>Page 2</td></tr>' } },
+    ))
+    expect(r.records).toHaveLength(2)
+    expect(r.meta.skipped).toBe(1)
+  })
+})
+
+describe('parseIvmsHtml — anonim fixture (haqiqiy fayl tuzilishi: <tr> faqat birinchi qatorda)', () => {
+  const html = readFileSync(resolve(process.cwd(), 'src/lib/__fixtures__/ivms_raw_anon.xls'), 'utf8')
+  const res = parseIvmsHtml(html)
+
+  it("format, oy va yozuvlar soni", () => {
+    expect(res.format).toBe('raw_records')
+    expect(res.month).toBe('2026-09')
+    expect(res.records).toHaveLength(38)
+    expect(res.meta.skipped).toBe(0)
+    expect(res.meta.names).toHaveLength(4)
+  })
+
+  it("ID lardan apostrof olib tashlangan", () => {
+    expect([...new Set(res.records.map((r) => r.personId))].sort()).toEqual(['101', '102', '103', '104'])
+  })
+
+  it('holatlar', () => {
+    expect(res.meta.stateCounts).toEqual({ none: 13, out: 12, in: 12, break_out: 1 })
   })
 })

@@ -7,8 +7,8 @@ const SETTINGS_KEY = 'app'
 function check(error) {
   if (!error) return
   // PGRST202 — funksiya topilmadi: bazada sxema yangilanmagan
-  const e = new Error(error.code === 'PGRST202'
-    ? "Bazada yangi funksiya topilmadi — supabase/schema.sql ni qayta ishga tushiring (README)."
+  const e = new Error(error.code === 'PGRST202' || error.code === '42703'
+    ? "Bazada yangi funksiya/ustun topilmadi — supabase/schema.sql ni qayta ishga tushiring (README)."
     : error.message || 'Supabase xatosi')
   e.code = error.code // masalan 23503 — bog'liq yozuvlar bor (tarixi bor ishchini o'chirish)
   throw e
@@ -172,6 +172,11 @@ export async function getCalculationsByMonth(month) {
 // ---------- Saqlash — bitta tranzaksiyada (supabase/schema.sql dagi funksiyalar) ----------
 /** Oy hisobotini to'liq almashtiradi: eski hisobot + yangi davomat + natijalar */
 export async function saveMonthReport({ month, file_name, source, attendance, calculations, settings_snapshot = null }) {
+  // Xom format (sessions/issues): sxema yangilanmagan bo'lsa juftliklar jimgina yo'qolmasin
+  if (attendance?.some((a) => a.sessions !== undefined)) {
+    const { error } = await supabase.from('attendance_records').select('sessions,issues').limit(1)
+    check(error)
+  }
   const { data, error } = await supabase.rpc('save_month_report', {
     p_month: month,
     p_file_name: file_name,
@@ -185,11 +190,13 @@ export async function saveMonthReport({ month, file_name, source, attendance, ca
 }
 
 /** Hisobot natijalarini almashtiradi (qayta hisoblash); snapshot berilsa — u ham yangilanadi */
-export async function replaceCalculationsForReport(reportId, records, settingsSnapshot = null) {
+export async function replaceCalculationsForReport(reportId, records, settingsSnapshot = null, attendance = null) {
   const { error } = await supabase.rpc('replace_report_calculations', {
     p_report_id: reportId,
     p_calculations: records,
     p_settings_snapshot: settingsSnapshot,
+    // faqat xom format oylarida (eski funksiya bu parametrni bilmaydi)
+    ...(attendance ? { p_attendance: attendance } : {}),
   })
   check(error)
 }

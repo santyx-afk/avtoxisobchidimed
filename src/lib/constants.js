@@ -33,3 +33,40 @@ export const REPORT_SOURCE_LABEL = {
   manual: "Qo'lda",
   agent: 'Agent',
 }
+
+// IVMS fayl formatlari
+export const IVMS_FORMAT = {
+  PUNCH_REPORT: 'punch_report', // "Punch Report": kunlik birinchi kirish / oxirgi chiqish
+  RAW_RECORDS: 'raw_records', // "Отчет об исходных записях": xom punchlar (Приход / Уход)
+}
+
+export const IVMS_FORMAT_LABEL = {
+  punch_report: 'Punch Report (birinchi kirish / oxirgi chiqish)',
+  raw_records: 'Xom yozuvlar (Приход / Уход juftliklari)',
+}
+
+// Xom punch holatlari ("Состояние посещения")
+export const PUNCH_STATE = {
+  IN: 'in', // Приход
+  OUT: 'out', // Уход
+  BREAK_IN: 'break_in', // Приход при перерыве
+  BREAK_OUT: 'break_out', // Уход при перерыве
+  NONE: 'none', // Нет — hisobga olinmaydi
+}
+
+// Kunlik izohlar (attendance.issues[].type)
+export const DAY_ISSUE = {
+  UNCLOSED_IN: 'unclosed_in', // Приход bor, Уход bosilmagan
+  ORPHAN_OUT: 'orphan_out', // oldidan Приход yo'q Уход
+  ORPHAN_BREAK: 'orphan_break', // juftlanmagan tanaffus punchi
+  ONLY_NONE: 'only_none', // kunda faqat «Нет» punchlar
+  SHORT: 'short', // 1 daqiqadan qisqa juftlik
+}
+
+export const DAY_ISSUE_LABEL = {
+  unclosed_in: 'Ketaman bosilmagan',
+  orphan_out: "Приход'siz Уход",
+  orphan_break: 'Tanaffus juftlanmadi',
+  only_none: 'Faqat «Нет»',
+  short: 'Juda qisqa juftlik',
+}

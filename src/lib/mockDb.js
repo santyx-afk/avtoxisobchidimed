@@ -218,7 +218,7 @@ export async function saveMonthReport({ month, file_name, source = 'manual', att
   s.salary_calculations = s.salary_calculations.filter((c) => !oldIds.has(c.report_id))
   const report = { id: uid(), month, file_name, source, settings_snapshot, uploaded_at: new Date().toISOString() }
   s.monthly_reports.push(report)
-  attendance.forEach((a) => s.attendance_records.push({ ...a, id: uid(), report_id: report.id }))
+  attendance.forEach((a) => s.attendance_records.push({ sessions: null, issues: null, ...a, id: uid(), report_id: report.id }))
   calculations.forEach((c) => s.salary_calculations.push({ ...c, id: uid(), report_id: report.id }))
   save(s)
   return report
@@ -237,8 +237,12 @@ export async function getCalculationsByMonth(month) {
   return s.salary_calculations.filter((c) => c.report_id === report.id)
 }
 
-export async function replaceCalculationsForReport(reportId, records, settingsSnapshot = null) {
+export async function replaceCalculationsForReport(reportId, records, settingsSnapshot = null, attendance = null) {
   const s = load()
+  if (attendance) {
+    s.attendance_records = s.attendance_records.filter((a) => a.report_id !== reportId)
+    attendance.forEach((a) => s.attendance_records.push({ ...a, id: uid(), report_id: reportId }))
+  }
   const report = s.monthly_reports.find((r) => r.id === reportId)
   if (report && settingsSnapshot) report.settings_snapshot = settingsSnapshot
   s.salary_calculations = s.salary_calculations.filter((c) => c.report_id !== reportId)
