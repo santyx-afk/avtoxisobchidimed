@@ -3,17 +3,20 @@ import { useNavigate, useLocation, Navigate } from 'react-router-dom'
 import { Stethoscope, Eye, EyeOff, Sun, Moon, LogIn } from 'lucide-react'
 import { useAuth } from '../lib/auth'
 import { useTheme } from '../lib/theme'
-import { APP_NAME, APP_SUBTITLE, SUPABASE_AUTH } from '../lib/config'
+import { APP_NAME, APP_SUBTITLE, SUPABASE_AUTH, IS_DESKTOP } from '../lib/config'
 import { IS_DEMO } from '../lib/db'
 import { Spinner } from '../components/ui'
 
+export const MIN_DESKTOP_PASSWORD = 4
+
 export default function Login() {
-  const { user, login, authError } = useAuth()
+  const { user, login, authError, needsSetup } = useAuth()
   const { theme, toggleTheme } = useTheme()
   const navigate = useNavigate()
   const location = useLocation()
   const [nickname, setNickname] = useState('')
   const [password, setPassword] = useState('')
+  const [password2, setPassword2] = useState('')
   const [show, setShow] = useState(false)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
@@ -23,6 +26,10 @@ export default function Login() {
   async function onSubmit(e) {
     e.preventDefault()
     setError('')
+    if (IS_DESKTOP && needsSetup) {
+      if (password.length < MIN_DESKTOP_PASSWORD) { setError(`Parol kamida ${MIN_DESKTOP_PASSWORD} belgidan iborat bo'lsin`); return }
+      if (password !== password2) { setError('Ikkala parol bir xil emas'); return }
+    }
     setBusy(true)
     const res = await login(nickname, password)
     setBusy(false)
@@ -56,20 +63,28 @@ export default function Login() {
         </div>
 
         <form onSubmit={onSubmit} className="space-y-4">
+          {IS_DESKTOP && needsSetup && (
+            <p className="rounded-xl bg-brand-50 px-3 py-2 text-sm text-brand-700 dark:bg-brand-500/10 dark:text-brand-300">
+              Birinchi ishga tushirish. Dastur uchun parol o'rnating — keyingi safar shu parol bilan kirasiz.
+              Parolni unutmang: uni tiklab bo'lmaydi.
+            </p>
+          )}
+          {!IS_DESKTOP && (
+            <div>
+              <label className="label">{SUPABASE_AUTH ? 'Email' : 'Nickname'}</label>
+              <input
+                className="input"
+                type={SUPABASE_AUTH ? 'email' : 'text'}
+                value={nickname}
+                onChange={(e) => setNickname(e.target.value)}
+                placeholder={SUPABASE_AUTH ? 'siz@dimed.uz' : 'admin'}
+                autoComplete="username"
+                autoFocus
+              />
+            </div>
+          )}
           <div>
-            <label className="label">{SUPABASE_AUTH ? 'Email' : 'Nickname'}</label>
-            <input
-              className="input"
-              type={SUPABASE_AUTH ? 'email' : 'text'}
-              value={nickname}
-              onChange={(e) => setNickname(e.target.value)}
-              placeholder={SUPABASE_AUTH ? 'siz@dimed.uz' : 'admin'}
-              autoComplete="username"
-              autoFocus
-            />
-          </div>
-          <div>
-            <label className="label">Parol</label>
+            <label className="label">{IS_DESKTOP && needsSetup ? 'Yangi parol' : 'Parol'}</label>
             <div className="relative">
               <input
                 className="input pr-11"
@@ -78,6 +93,7 @@ export default function Login() {
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="••••••••"
                 autoComplete="current-password"
+                autoFocus={IS_DESKTOP}
               />
               <button
                 type="button"
@@ -90,6 +106,20 @@ export default function Login() {
             </div>
           </div>
 
+          {IS_DESKTOP && needsSetup && (
+            <div>
+              <label className="label">Parolni takrorlang</label>
+              <input
+                className="input"
+                type={show ? 'text' : 'password'}
+                value={password2}
+                onChange={(e) => setPassword2(e.target.value)}
+                placeholder="••••••••"
+                autoComplete="new-password"
+              />
+            </div>
+          )}
+
           {(error || authError) && (
             <div className="rounded-xl bg-red-50 px-3 py-2 text-sm text-red-600 dark:bg-red-500/10 dark:text-red-300">
               {error || authError}
@@ -98,7 +128,7 @@ export default function Login() {
 
           <button type="submit" className="btn-primary w-full" disabled={busy}>
             {busy ? <Spinner className="h-4 w-4" /> : <LogIn className="h-4 w-4" />}
-            Kirish
+            {IS_DESKTOP && needsSetup ? "Parolni o'rnatish" : 'Kirish'}
           </button>
         </form>
 

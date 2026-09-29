@@ -1,14 +1,19 @@
 // Ma'lumotlar qatlami — Supabase sozlangan bo'lsa real DB, aks holda DEMO (localStorage).
 // Barcha sahifalar faqat shu modul orqali ma'lumot oladi.
-import { isSupabaseConfigured } from './config'
+import { isSupabaseConfigured, IS_DESKTOP } from './config'
 import * as mock from './mockDb'
 import * as real from './realDb'
+import { desktopStorage } from './desktop'
+
+// Windows ilovada ma'lumotlar diskdagi faylda (mockDb, faqat saqlash joyi boshqa)
+if (IS_DESKTOP) mock.setStorage(desktopStorage)
 
 const impl = isSupabaseConfigured ? real : mock
 
-export const IS_DEMO = !isSupabaseConfigured
+export const IS_DEMO = !isSupabaseConfigured && !IS_DESKTOP
 
-export const seedIfEmpty = impl.seedIfEmpty
+// Windows ilovada demo ishchilar yaratilmaydi — baza bo'sh boshlanadi
+export const seedIfEmpty = IS_DESKTOP ? () => {} : impl.seedIfEmpty
 export const registerDemoReportBuilder = impl.registerDemoReportBuilder
 export const resetDemoData = impl.resetDemoData
 

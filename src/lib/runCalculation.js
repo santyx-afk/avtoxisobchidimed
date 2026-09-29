@@ -248,7 +248,7 @@ export async function processIvmsFile({ html, fileName, source = 'manual', expec
   }
   // Agent fayli faqat «Нет» punchlardan iborat bo'lsa (Приход/Уход tugmalari ishlatilmagan oy) — hamma kun
   // «kelmagan» bo'lardi va saytdagi to'g'ri hisobot ustidan yozilardi. Qo'lda yuklashga ruxsat (ogohlantirish bilan)
-  if (source === 'agent' && parsed.format === IVMS_FORMAT.RAW_RECORDS && !parsed.meta.statefulDates?.length) {
+  if ((source === 'agent' || source === 'isapi') && parsed.format === IVMS_FORMAT.RAW_RECORDS && !parsed.meta.statefulDates?.length) {
     throw new Error(`${parsed.month} fayli faqat «Нет» punchlardan iborat (Приход/Уход yo'q) — o'tkazib yuborildi, oy ustidan yozilmadi.`)
   }
   // Agent fayli: papka oyi va fayl ichidagi oy bir xil bo'lishi kerak (boshqa oy ustidan yozilmasin)

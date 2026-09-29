@@ -1,20 +1,31 @@
 import { createContext, useContext, useEffect, useState } from 'react'
-import { parseUsers, SUPABASE_AUTH } from './config'
+import { parseUsers, SUPABASE_AUTH, IS_DESKTOP } from './config'
 import { supabase } from './supabase'
 import { staffUserFromSession, NO_ACCESS_MESSAGE } from './authRole'
+import { desktopAuth } from './desktop'
 
 const AuthContext = createContext(null)
 const SESSION_KEY = 'dimed-session'
+const DESKTOP_USER = { nickname: 'Administrator' }
 
-// Real DB (Supabase) bilan — faqat Supabase Auth; DEMO rejimda — nickname+parol
+// Real DB (Supabase) bilan — faqat Supabase Auth; DEMO rejimda — nickname+parol;
+// Windows ilovada — faqat parol (kompyuterda saqlanadi, internet kerak emas)
 const useSupabaseAuth = SUPABASE_AUTH && supabase
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null)
   const [loading, setLoading] = useState(true)
   const [authError, setAuthError] = useState('')
+  const [needsSetup, setNeedsSetup] = useState(false) // Windows ilova: parol hali o'rnatilmagan
 
   useEffect(() => {
+    if (IS_DESKTOP) {
+      desktopAuth.status()
+        .then((s) => setNeedsSetup(!s?.hasPassword))
+        .catch(() => {})
+        .finally(() => setLoading(false))
+      return
+    }
     if (useSupabaseAuth) {
       // --- Supabase Auth rejimi ---
       // Sessiya bor, lekin 'staff' roli yo'q (agent yoki ruxsatsiz hisob) — tizimdan chiqaramiz.
@@ -53,6 +64,13 @@ export function AuthProvider({ children }) {
    */
   async function login(identifier, password) {
     setAuthError('')
+    if (IS_DESKTOP) {
+      const res = needsSetup ? await desktopAuth.setup(password) : await desktopAuth.verify(password)
+      if (!res?.ok) return { ok: false, error: res?.error || "Parol noto'g'ri" }
+      setNeedsSetup(false)
+      setUser(DESKTOP_USER)
+      return { ok: true }
+    }
     if (useSupabaseAuth) {
       const { data, error } = await supabase.auth.signInWithPassword({
         email: String(identifier).trim(),
@@ -85,6 +103,10 @@ export function AuthProvider({ children }) {
   }
 
   async function logout() {
+    if (IS_DESKTOP) {
+      setUser(null)
+      return
+    }
     if (useSupabaseAuth) {
       await supabase.auth.signOut().catch(() => {})
       setUser(null)
@@ -99,7 +121,7 @@ export function AuthProvider({ children }) {
   }
 
   return (
-    <AuthContext.Provider value={{ user, login, logout, loading, authError }}>
+    <AuthContext.Provider value={{ user, login, logout, loading, authError, needsSetup }}>
       {children}
     </AuthContext.Provider>
   )

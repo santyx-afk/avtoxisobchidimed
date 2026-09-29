@@ -236,3 +236,12 @@ Keyingi PR (`feat/keldi-ketti`): yangi xom format va Приход/Уход juftl
 | "Bu hisobga ruxsat berilmagan" | `staff` roli berilmagan (4-bo'lim), keyin qayta login qiling |
 | "Bazada yangi funksiya topilmadi" | `supabase/schema.sql`ni qayta ishga tushiring |
 | Agent: `Yuklash xato (401/403)` | Agent foydalanuvchisiga `agent` roli berilmagan |
+
+
+## Windows ilova (to'liq offlayn) — `desktop/`
+- Electron qobig'i: ma'lumot `%APPDATA%/Dimed Salary/data/db.json` (mockDb saqlash adapteri orqali, `src/lib/desktop.js`), Supabase ishlatilmaydi (`IS_DESKTOP` da `isSupabaseConfigured=false`).
+- Kirish: faqat parol (scrypt hash, `desktop/authStore.cjs`); 5 xato → 30 s blok. Parolni tiklash yo'q.
+- Turniket: `desktop/isapi.cjs` (Digest, AcsEvent, sahifalash) → `Oylik hisoblash → Turniketdan olish` → `processIvmsFile(source:'isapi')` (Приход/Уход yo'q oy rad etiladi, agent kabi). Sozlamalar sahifasida IP/login/parol/zona/sahifa hajmi + «Ulanishni tekshirish».
+- Zaxira: kunlik avtomatik (14 kun) + qo'lda saqlash/tiklash. Sinxron yo'q (foydalanuvchi talabi).
+- Build: `npm run dist:win` (CI: `.github/workflows/desktop.yml`, windows-latest). Xvfb ostida Electron smoke-test o'tgan; real Windows/terminalda tekshirilmagan.
+- Ma'lum cheklovlar: Inter shrifti Google'dan yuklanadi (offlaynda tizim shrifti); `.exe` imzolanmagan (SmartScreen ogohlantirishi); qo'lda tuzatishlar oyni terminaldan qayta olsa yo'qoladi (tasdiq so'raladi).

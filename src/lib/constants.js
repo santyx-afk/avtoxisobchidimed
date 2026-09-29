@@ -33,6 +33,7 @@ export const CALC_TYPE_LABEL = {
 export const REPORT_SOURCE_LABEL = {
   manual: "Qo'lda",
   agent: 'Agent',
+  isapi: 'Turniket (ISAPI)',
 }
 
 // IVMS fayl formatlari

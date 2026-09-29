@@ -50,3 +50,6 @@ agent/config.json
 agent/*.log
 agent/state.json
 agent/exports/
+
+dist-desktop
+release

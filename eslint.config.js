@@ -4,7 +4,12 @@ import react from 'eslint-plugin-react'
 import reactHooks from 'eslint-plugin-react-hooks'
 
 export default [
-  { ignores: ['dist', 'node_modules', 'coverage'] },
+  { ignores: ['dist', 'dist-desktop', 'release', 'node_modules', 'coverage'] },
+  {
+    files: ['desktop/**/*.cjs'],
+    languageOptions: { ecmaVersion: 'latest', sourceType: 'commonjs', globals: { ...globals.node } },
+    rules: { ...js.configs.recommended.rules, 'no-unused-vars': ['error', { argsIgnorePattern: '^_', caughtErrors: 'none' }] },
+  },
   {
     files: ['**/*.{js,jsx}'],
     languageOptions: {

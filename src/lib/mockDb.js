@@ -21,9 +21,19 @@ function emptyState() {
   }
 }
 
+// Saqlash adapteri: brauzerda localStorage; Windows ilovada (Electron) — diskdagi fayl.
+// Ilova adapterni `setStorage` bilan almashtiradi (src/lib/desktop.js).
+let storage = {
+  read: () => localStorage.getItem(DB_KEY),
+  write: (text) => localStorage.setItem(DB_KEY, text),
+}
+export function setStorage(adapter) {
+  storage = adapter
+}
+
 function load() {
   try {
-    const raw = localStorage.getItem(DB_KEY)
+    const raw = storage.read()
     if (!raw) return emptyState()
     const parsed = JSON.parse(raw)
     return { ...emptyState(), ...parsed }
@@ -34,7 +44,7 @@ function load() {
 
 function save(state) {
   try {
-    localStorage.setItem(DB_KEY, JSON.stringify(state))
+    storage.write(JSON.stringify(state))
   } catch (e) {
     // e'tiborsiz (masalan xotira to'lgan)
   }
