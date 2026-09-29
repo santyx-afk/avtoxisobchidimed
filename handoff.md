@@ -220,7 +220,7 @@ Keyingi PR (`feat/keldi-ketti`): yangi xom format va Приход/Уход juftl
 6. **Tungi smena mantig'i** o'rta nuqta qoidasiga asoslangan. Haqiqiy tungi smena ma'lumotida tekshirib ko'rish kerak.
 7. **Agent** o'z holatini bazaga yozmaydi. Sozlamalardagi holat sayt tomonidagi sinxronizatsiya natijasi.
 8. **Vaqt mintaqasi:** ISAPI rejimida `+05:00` qattiq yozilgan.
-9. **Agent `isapi` rejimi** hamon eski formatdagi (birinchi/oxirgi) HTML yasaydi; `folder` rejimi har ikki formatni o'tkazadi (`file_month()` yangi formatda ham oyni to'g'ri topadi).
+9. **Agent `isapi` rejimi** endi «Отчет об исходных записях» formatida HTML yasaydi (`attendanceStatus` → Приход/Уход/...; oy chegarasiga yarim sutka qo'shiladi). Haqiqiy qurilmada hali sinalmagan: avval `python ivms_agent.py --test-isapi`. `folder` rejimi har ikki formatni o'tkazadi.
 10. **Namuna (2026-09) eslatmasi:** Приход/Уход tugmalari 26.09 dan ishlatila boshlagan, undan oldingi kunlar faqat «Нет» — yangi qoida bo'yicha «kelmagan». Bu oy uchun to'liq hisob mantiqsiz chiqadi; yangi format keyingi oydan to'g'ri ishlaydi.
 11. **Qurilma tugma nomlari:** «Tanaffusga» = «Приход при перерыве», «Qaytdim» = «Уход при перерыве» — teskari ko'rinadi. Tanaffus qat'iy «Уход при перерыве → Приход при перерыве» tartibida qidiriladi; agar xodimlar nomga qarab bossa, tanaffus ayrilmaydi (izohda ko'rinadi) — qurilmada nomlarni to'g'rilash kerak.
 12. **Oy chegarasi:** oxirgi kuni boshlangan tungi smenaning Уход'i keyingi oy faylida bo'ladi — o'tgan oyda «Ketaman bosilmagan» chiqadi.

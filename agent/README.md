@@ -83,11 +83,52 @@ IVMS-4200 ni har oy `watch_folder` ga "Punch Report" eksport qiladigan qilib
 sozlang (yoki qo'lda saqlang). Agent papkadagi fayllar **ichidagi sanalarni**
 tekshirib, kerakli oyga tegishli eng yangi faylni yuklaydi (fayl nomi muhim emas).
 
-### 2. `isapi` (ilg'or — to'liq avtomatik)
+### 2. `isapi` (to'liq avtomatik — qurilmadan to'g'ridan-to'g'ri)
 
-Agent Hikvision qurilmasidan **ISAPI** orqali davomat hodisalarini to'g'ridan-
-to'g'ri yuklab, IVMS formatidagi HTML hisobotni o'zi yaratadi. IVMS-4200 kerak
-emas, lekin qurilma IP va parol kerak.
+Agent Hikvision terminalidan **ISAPI** orqali barcha davomat hodisalarini (Приход /
+Уход / Приход при перерыве / Уход при перерыве va holat bosilmaganlari) yuklab,
+sayt o'qiydigan **«Отчет об исходных записях»** formatidagi hisobotni o'zi yaratadi.
+IVMS-4200 va papka kerak emas.
+
+`config.json` da:
+
+```json
+"mode": "isapi",
+"target": "previous",
+"isapi": {
+  "host": "192.168.1.64",
+  "username": "admin",
+  "password": "QURILMA_PAROLI",
+  "timezone": "+05:00"
+}
+```
+
+| `isapi` maydoni | Izoh |
+|---|---|
+| `host` | Terminalning lokal tarmoqdagi IP manzili (agent kompyuteri shu tarmoqda bo'lishi kerak) |
+| `username` / `password` | Terminalning admin foydalanuvchisi (Digest autentifikatsiya) |
+| `timezone` | Qurilma vaqt mintaqasi (standart `+05:00`) |
+| `scheme` / `port` / `verify_tls` | Ixtiyoriy: `https`, port, sertifikatni tekshirish (standart `http`, 80-port) |
+| `page_size` | Ixtiyoriy: bir so'rovda nechta hodisa (standart 30) |
+
+**Avval sinab ko'ring:**
+
+```bash
+python ivms_agent.py --test-isapi
+```
+
+U oxirgi 24 soatdagi hodisalarni oladi va hodisa maydonlarini hamda `attendanceStatus`
+bo'yicha sonini chiqaradi. Kutilgan: `checkIn`, `checkOut` (va `undefined` — holat
+bosilmaganlar). Faqat `undefined` chiqsa, terminalda davomat holati (Attendance Status)
+yoqilmagan yoki boshqa maydon nomi ishlatilgan bo'lishi mumkin.
+
+Eslatmalar:
+- Hisobot oy chegarasida ikki chetga yarim sutka (oldingi kun 12:00 – keyingi oyning 1-kuni 12:00)
+  qo'shib olinadi, shunda oxirgi kuni boshlangan tungi smena uzilib qolmaydi. Sayt faqat
+  shu oyga tegishli smenalarni hisoblaydi (boshqa oy yozuvlari haqida ogohlantirish chiqishi mumkin).
+- Sayt yangi fayl oldingi hisobotdan yangiroq bo'lsa oyni qayta yozadi — qo'lda tuzatishlardan
+  keyin `--now` bilan qayta yuklamang.
+- Joriy oyni ko'rish uchun `"target": "current"` qo'ying.
 
 ## 🖥 Ishlatish
 
@@ -96,6 +137,7 @@ python ivms_agent.py           # jadval bo'yicha (kun/soat kelsa) ishlaydi
 python ivms_agent.py --now     # darhol ishga tushiradi
 python ivms_agent.py --loop    # doimiy: har N daqiqada tekshiradi
 python ivms_agent.py --status  # holatni ko'rsatadi
+python ivms_agent.py --test-isapi  # ISAPI ulanishini sinaydi
 ```
 
 Kompyuter faqat ish vaqtida yoniq bo'lsa ham muammo yo'q: Windows vazifasi har
@@ -119,4 +161,4 @@ kuni tekshiradi va vaqti kelgan (hali yuklanmagan) oyni **yoniqda** yuklaydi.
 | `Agent login xato (400)` | `agent_email` / `agent_password` ni tekshiring |
 | `Yuklash xato (401/403)` | Agent foydalanuvchisiga `agent` roli berilganini va bucket nomini tekshiring |
 | Fayl yuklanmayapti | `agent.log` ni ko'ring |
-| ISAPI xato | Qurilma IP, login/parol va tarmoqni tekshiring |
+| ISAPI xato | `--test-isapi` ni ishga tushiring; qurilma IP, login/parol (401 — parol noto'g'ri) va tarmoqni tekshiring |

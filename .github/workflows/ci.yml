@@ -20,3 +20,5 @@ jobs:
       - run: npm run build
       - name: Agent (Python) sintaksisi
         run: python3 -m py_compile agent/ivms_agent.py
+      - name: Agent (Python) testlari
+        run: python3 -m unittest discover -s agent -p "test_*.py"
