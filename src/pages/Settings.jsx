@@ -7,7 +7,8 @@ import { PageHeader, PageLoader, Field, ConfirmDialog } from '../components/ui'
 import { WEEKDAY_NAMES_UZ, formatDate, formatDateTime } from '../lib/format'
 import { DEFAULT_SETTINGS } from '../lib/constants'
 import { IS_DEMO } from '../lib/db'
-import { SUPABASE_URL } from '../lib/config'
+import { SUPABASE_URL, IS_DESKTOP } from '../lib/config'
+import DesktopSettings from '../components/DesktopSettings'
 import * as db from '../lib/db'
 
 export default function Settings() {
@@ -179,7 +180,11 @@ export default function Settings() {
           </div>
         </div>
 
-        {/* IVMS Agent */}
+        {/* Windows ilova: terminal, parol, zaxira */}
+        {IS_DESKTOP && <DesktopSettings />}
+
+        {/* IVMS Agent (Windows ilovada kerak emas — turniketdan to'g'ridan-to'g'ri olinadi) */}
+        {!IS_DESKTOP && (
         <div className="card p-5">
           <div className="mb-4 flex items-center gap-2">
             <Server className="h-5 w-5 text-brand-500" />
@@ -204,8 +209,10 @@ export default function Settings() {
             )}
           </div>
         </div>
+        )}
 
         {/* Tizim */}
+        {!IS_DESKTOP && (
         <div className="card p-5">
           <div className="mb-4 flex items-center gap-2">
             <Database className="h-5 w-5 text-brand-500" />
@@ -237,6 +244,7 @@ export default function Settings() {
             </button>
           )}
         </div>
+        )}
       </div>
 
       <div className="mt-6 flex items-start gap-2 rounded-xl bg-slate-100 px-4 py-3 text-xs text-slate-500 dark:bg-slate-800/50 dark:text-slate-400">

@@ -1,6 +1,7 @@
 import React from 'react'
 import ReactDOM from 'react-dom/client'
-import { BrowserRouter } from 'react-router-dom'
+import { BrowserRouter, HashRouter } from 'react-router-dom'
+import { IS_DESKTOP } from './lib/config'
 import App from './App'
 import './index.css'
 import { ThemeProvider } from './lib/theme'
@@ -17,9 +18,8 @@ ReactDOM.createRoot(document.getElementById('root')).render(
     <ErrorBoundary>
       <ThemeProvider>
         <AuthProvider>
-          <BrowserRouter>
-            <App />
-          </BrowserRouter>
+          {/* Windows ilova file:// dan ochiladi — HashRouter kerak */}
+          {IS_DESKTOP ? <HashRouter><App /></HashRouter> : <BrowserRouter><App /></BrowserRouter>}
         </AuthProvider>
       </ThemeProvider>
     </ErrorBoundary>

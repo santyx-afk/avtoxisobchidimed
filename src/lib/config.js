@@ -4,8 +4,12 @@ export const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || ''
 export const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || ''
 export const IVMS_BUCKET = import.meta.env.VITE_IVMS_BUCKET || 'ivms-reports'
 
+// Windows ilova (Electron): preload `window.dimed` ni beradi. Bu rejimda hamma narsa
+// kompyuterning o'zida (diskdagi fayl) saqlanadi, internet va Supabase kerak emas.
+export const IS_DESKTOP = typeof window !== 'undefined' && Boolean(window.dimed?.isDesktop)
+
 // Supabase sozlangan bo'lsa — real DB, aks holda DEMO (localStorage) rejim
-export const isSupabaseConfigured = Boolean(SUPABASE_URL && SUPABASE_ANON_KEY)
+export const isSupabaseConfigured = !IS_DESKTOP && Boolean(SUPABASE_URL && SUPABASE_ANON_KEY)
 
 // Real DB bilan faqat Supabase Auth (email+parol) ishlatiladi: parollar bundle'ga
 // tushmaydi, RLS esa faqat 'staff' rolidagi foydalanuvchilarga ruxsat beradi.

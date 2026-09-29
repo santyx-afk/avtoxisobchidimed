@@ -7,6 +7,8 @@ import { PageHeader, StatCard, EmptyState, PageLoader } from '../components/ui'
 import DataTable from '../components/DataTable'
 import SalaryDetail from '../components/SalaryDetail'
 import IssueList from '../components/IssueList'
+import DeviceFetch from '../components/DeviceFetch'
+import { IS_DESKTOP } from '../lib/config'
 import { dayIssueSummary } from '../lib/salaryCalc'
 import { formatSom, formatSigned, formatMonth, formatDateTime, formatDate } from '../lib/format'
 import { CALC_TYPE_LABEL, REPORT_SOURCE_LABEL, IVMS_FORMAT_LABEL } from '../lib/constants'
@@ -121,6 +123,12 @@ export default function Calculate() {
     }
   }
 
+  async function importHtml(html, fileName, source) {
+    const result = await processIvmsFile({ html, fileName, source })
+    setReports(await db.listReports())
+    setView(buildView(result, result.parsed.records))
+  }
+
   async function handleFile(file) {
     if (!file) return
     setError('')
@@ -128,15 +136,24 @@ export default function Calculate() {
     setBusy(true)
     try {
       const html = await readReportFile(file) // HTML-xls (UTF-8/16, 1251) yoki haqiqiy .xls/.xlsx
-      const result = await processIvmsFile({ html, fileName: file.name, source: 'manual' })
-      const reps = await db.listReports()
-      setReports(reps)
-      setView(buildView(result, result.parsed.records))
+      await importHtml(html, file.name, 'manual')
     } catch (err) {
       setError(err.message || "Faylni qayta ishlashda xatolik")
     } finally {
       setBusy(false)
       if (fileRef.current) fileRef.current.value = ''
+    }
+  }
+
+  // Windows ilova: terminaldan (ISAPI) olingan oy shu yerda hisoblanadi
+  async function handleDevice({ html, fileName, total }) {
+    setError('')
+    setBusy(true)
+    try {
+      await importHtml(html, fileName, 'isapi')
+      setAddedMsg(`Terminaldan ${total} ta yozuv olindi va hisoblandi.`)
+    } finally {
+      setBusy(false)
     }
   }
 
@@ -265,6 +282,15 @@ export default function Calculate() {
           </select>
         )}
       </PageHeader>
+
+      {IS_DESKTOP && (
+        <DeviceFetch
+          existingMonths={reports.map((r) => r.month)}
+          busy={busy}
+          onFetched={handleDevice}
+          onError={setError}
+        />
+      )}
 
       {/* Yuklash zonasi */}
       <div
