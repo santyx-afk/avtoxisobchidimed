@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
-  History as HistoryIcon, Download, Wallet, Timer, Clock, FileSpreadsheet, Upload,
+  History as HistoryIcon, Download, Wallet, Timer, Clock, FileSpreadsheet, Upload, Lock, LockOpen,
 } from 'lucide-react'
 import {
   ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid, Legend,
 } from 'recharts'
-import { PageHeader, PageLoader, StatCard, EmptyState } from '../components/ui'
+import { PageHeader, PageLoader, StatCard, EmptyState, ConfirmDialog } from '../components/ui'
 import DataTable from '../components/DataTable'
 import SalaryDetail from '../components/SalaryDetail'
 import { formatSom, formatSigned, formatMonth, formatDateTime } from '../lib/format'
@@ -14,6 +14,7 @@ import { CALC_TYPE_LABEL, REPORT_SOURCE_LABEL } from '../lib/constants'
 import { loadMonthView, monthSummary } from '../lib/reportView'
 import { exportMonthToExcel } from '../lib/excel'
 import { useTheme } from '../lib/theme'
+import { getLockedMonths, setMonthLocked } from '../lib/monthLock'
 import * as db from '../lib/db'
 
 export default function History() {
@@ -23,6 +24,10 @@ export default function History() {
   const [selected, setSelected] = useState('')
   const [view, setView] = useState(null)
   const [detail, setDetail] = useState(null)
+  const [lockedMonths, setLockedMonths] = useState([])
+  const [unlockAsk, setUnlockAsk] = useState(false)
+  const [lockBusy, setLockBusy] = useState(false)
+  const [lockError, setLockError] = useState('')
 
   useEffect(() => {
     ;(async () => {
@@ -34,6 +39,7 @@ export default function History() {
           if (!byReport.has(c.report_id)) byReport.set(c.report_id, [])
           byReport.get(c.report_id).push({ summary: c })
         }
+        setLockedMonths(await getLockedMonths())
         const withAgg = reports.map((r) => ({ report: r, month: r.month, agg: monthSummary(byReport.get(r.id) || []) }))
         withAgg.sort((a, b) => (a.month < b.month ? 1 : -1))
         setMonths(withAgg)
@@ -48,6 +54,20 @@ export default function History() {
   async function selectMonth(m) {
     setSelected(m)
     setView(await loadMonthView(m))
+  }
+
+  // Oyni qulflash / ochish (qulflangan oyga hisobot yozilmaydi, qayta hisoblanmaydi, avans o'zgarmaydi)
+  async function changeLock(month, locked) {
+    setLockBusy(true)
+    setLockError('')
+    try {
+      setLockedMonths(await setMonthLocked(month, locked))
+    } catch (e) {
+      setLockError(e.message || 'Saqlashda xatolik')
+    } finally {
+      setLockBusy(false)
+      setUnlockAsk(false)
+    }
   }
 
   const trend = useMemo(
@@ -135,6 +155,7 @@ export default function History() {
                 : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300'
             }`}
           >
+            {lockedMonths.includes(m.month) && <Lock className="mr-1.5 inline h-3.5 w-3.5" />}
             {formatMonth(m.month)}
           </button>
         ))}
@@ -148,13 +169,26 @@ export default function History() {
             </span>
             <span className="text-slate-500 dark:text-slate-400">Yuklangan: {formatDateTime(cur.report.uploaded_at)}</span>
             <span className="badge-slate">{REPORT_SOURCE_LABEL[cur.report.source]}</span>
-            <button
-              onClick={() => exportMonthToExcel({ month: cur.month, results: view.results })}
-              className="btn-secondary btn-sm ml-auto"
-            >
-              <Download className="h-4 w-4" /> Excel export
-            </button>
+            {lockedMonths.includes(cur.month) && <span className="badge-amber"><Lock className="h-3 w-3" /> Qulflangan</span>}
+            <div className="ml-auto flex items-center gap-2">
+              {lockedMonths.includes(cur.month) ? (
+                <button onClick={() => setUnlockAsk(true)} disabled={lockBusy} className="btn-secondary btn-sm" title="Oyni ochish — o'zgartirish mumkin bo'ladi">
+                  <LockOpen className="h-4 w-4" /> Oyni ochish
+                </button>
+              ) : (
+                <button onClick={() => changeLock(cur.month, true)} disabled={lockBusy} className="btn-secondary btn-sm" title="Oyni yopish — o'zgarishlardan himoya">
+                  <Lock className="h-4 w-4" /> Oyni yopish
+                </button>
+              )}
+              <button
+                onClick={() => exportMonthToExcel({ month: cur.month, results: view.results })}
+                className="btn-secondary btn-sm"
+              >
+                <Download className="h-4 w-4" /> Excel export
+              </button>
+            </div>
           </div>
+          {lockError && <p className="text-sm text-red-600 dark:text-red-400">{lockError}</p>}
 
           <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
             <StatCard icon={Wallet} label="Net fond" value={formatSom(cur.agg.fund)} hint="so'm" tone="green" />
@@ -173,6 +207,16 @@ export default function History() {
           />
         </div>
       )}
+
+      <ConfirmDialog
+        open={unlockAsk}
+        onClose={() => setUnlockAsk(false)}
+        onConfirm={() => changeLock(selected, false)}
+        title="Oyni ochish"
+        message={`${formatMonth(selected)} oyi ochilsa, uni qayta hisoblash, hisobotni almashtirish va avans o'zgartirish mumkin bo'ladi (agent fayli ham qayta yozishi mumkin). Ochilsinmi?`}
+        confirmText="Ha, ochish"
+        danger={false}
+      />
 
       <SalaryDetail open={!!detail} onClose={() => setDetail(null)} employee={detail?.employee} summary={detail?.summary} days={detail?.days || []} month={selected} />
     </div>
