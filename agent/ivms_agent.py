@@ -8,14 +8,16 @@ Storage ga yuklaydi. Sayt ochilganda faylni avtomatik ko'rib, oylikni hisoblaydi
 
 2 ta rejim:
   * folder  — IVMS-4200 export qilgan papkadan eng yangi faylni oladi (default)
-  * isapi   — Hikvision qurilmasidan (ISAPI) davomat hodisalarini o'zi yuklab,
-              IVMS formatidagi HTML hisobotni yaratadi
+  * isapi   — Hikvision qurilmasidan (ISAPI) davomat hodisalarini (Приход/Уход
+              holatlari bilan) o'zi yuklab, «Отчет об исходных записях» formatidagi
+              HTML hisobotni yaratadi
 
 Ishlatish:
   python ivms_agent.py            # jadval bo'yicha (kun/soat kelgan bo'lsa) ishlaydi
   python ivms_agent.py --now      # darhol ishga tushiradi (jadvalga qaramay)
   python ivms_agent.py --loop     # doimiy ishlaydi, har N daqiqada tekshiradi
   python ivms_agent.py --status   # holatni ko'rsatadi
+  python ivms_agent.py --test-isapi   # ISAPI ulanishini sinaydi (config.json da mode: isapi)
 
 Konfiguratsiya: config.json (config.example.json dan nusxa oling).
 """
@@ -152,102 +154,176 @@ def get_report_folder(cfg, month):
 
 
 # ---------------------------------------------------------------- isapi rejimi
-def get_report_isapi(cfg, month):
-    """Hikvision qurilmasidan ISAPI orqali davomat hodisalarini oladi va
-    IVMS formatidagi HTML hisobot yaratadi."""
+# Hikvision AcsEvent "attendanceStatus" -> IVMS "Состояние посещения" (sayt shu nomlarni o'qiydi)
+STATUS_RU = {
+    "checkin": "Приход",
+    "checkout": "Уход",
+    "breakin": "Приход при перерыве",
+    "breakout": "Уход при перерыве",
+}
+NONE_RU = "Нет"  # holat bosilmagan (yuz aniqlash) — sayt hisobga olmaydi
+
+RAW_HEADER = [
+    "Идентификатор человека", "Имя", "Департамент", "Время", "Состояние посещения",
+    "Точка проверки посещения", "Пользовательское название", "Источник данных",
+    "Тип обращения", "Температуры", "Аварийный режим",
+]
+
+
+def isapi_settings(cfg):
+    """isapi blokidan ulanish sozlamalari (standart: http, +05:00)."""
     dev = cfg.get("isapi", {})
     host = dev.get("host")
-    user = dev.get("username")
-    pwd = dev.get("password")
-    if not host:
+    scheme = dev.get("scheme", "http")
+    port = dev.get("port")
+    base = f"{scheme}://{host}" + (f":{port}" if port else "") if host else None
+    return {
+        "base": base,
+        "user": dev.get("username"),
+        "password": dev.get("password"),
+        "tz": dev.get("timezone", "+05:00"),
+        "verify": bool(dev.get("verify_tls", False)),
+        "max_results": int(dev.get("page_size", 30)),
+    }
+
+
+def month_range(month, tz):
+    """Oy oralig'i (ISO): oldingi kun 12:00 dan keyingi oyning 1-kuni 12:00 gacha.
+    Tungi smena chegarada uzilib qolmasligi uchun ikki chetga yarim sutka qo'shiladi
+    (sayt faqat shu oyga tegishli smenalarni hisoblaydi)."""
+    y, m = map(int, month.split("-"))
+    first = datetime(y, m, 1)
+    nxt = datetime(y + (m == 12), 1 if m == 12 else m + 1, 1)
+    start = first - timedelta(hours=12)
+    end = nxt + timedelta(hours=12)
+    fmt = "%Y-%m-%dT%H:%M:%S"
+    return start.strftime(fmt) + tz, end.strftime(fmt) + tz
+
+
+def fetch_isapi_events(cfg, start, end, limit=None):
+    """Qurilmadan AcsEvent hodisalarini sahifalab oladi. Xatoda None qaytaradi."""
+    st = isapi_settings(cfg)
+    if not st["base"]:
         log.error("isapi.host ko'rsatilmagan")
         return None
-
-    y, m = map(int, month.split("-"))
-    start = f"{y:04d}-{m:02d}-01T00:00:00+05:00"
-    if m == 12:
-        end = f"{y+1:04d}-01-01T00:00:00+05:00"
-    else:
-        end = f"{y:04d}-{m+1:02d}-01T00:00:00+05:00"
-
-    url = f"http://{host}/ISAPI/AccessControl/AcsEvent?format=json"
-    auth = requests.auth.HTTPDigestAuth(user, pwd)
-    # (personId, date) -> {name, dept, first, last}
-    people = {}
+    url = f"{st['base']}/ISAPI/AccessControl/AcsEvent?format=json"
+    auth = requests.auth.HTTPDigestAuth(st["user"], st["password"])
+    if not st["verify"] and st["base"].startswith("https"):
+        requests.packages.urllib3.disable_warnings()
+    events = []
     pos = 0  # searchResultPosition 0 dan boshlanadi
     while True:
         payload = {
             "AcsEventCond": {
                 "searchID": "dimed-agent",
                 "searchResultPosition": pos,
-                "maxResults": 200,
-                "major": 5, "minor": 0,  # 5=access control event
+                "maxResults": st["max_results"],
+                "major": 5, "minor": 0,  # 5=access control event, 0=barcha turlar
                 "startTime": start, "endTime": end,
             }
         }
         try:
-            r = requests.post(url, json=payload, auth=auth, timeout=30)
+            r = requests.post(url, json=payload, auth=auth, timeout=30, verify=st["verify"])
+            if r.status_code == 401:
+                log.error("ISAPI: login yoki parol noto'g'ri (401)")
+                return None
             r.raise_for_status()
             data = r.json().get("AcsEvent", {})
         except Exception as e:
             log.error("ISAPI so'rovi xato: %s", e)
             return None
 
-        events = data.get("InfoList", []) or []
-        for ev in events:
-            name = (ev.get("name") or "").strip()
-            pid = ev.get("employeeNoString") or ev.get("employeeNo") or ""
-            t = ev.get("time", "")  # 2026-08-01T08:03:11+05:00
-            if not name or "T" not in t:
-                continue
-            date = t[:10]
-            hms = t[11:19]
-            key = (pid, name, date)
-            rec = people.setdefault(key, {"first": hms, "last": hms})
-            rec["first"] = min(rec["first"], hms)
-            rec["last"] = max(rec["last"], hms)
-
+        batch = data.get("InfoList", []) or []
+        events.extend(batch)
         total = int(data.get("totalMatches", 0))
-        got = int(data.get("numOfMatches", len(events)))
+        got = int(data.get("numOfMatches", len(batch)))
         pos += got
-        if pos >= total or got == 0:
+        if got == 0 or pos >= total or (limit and len(events) >= limit):
             break
+    return events[:limit] if limit else events
 
-    if not people:
-        log.warning("ISAPI: %s oy uchun hodisa topilmadi", month)
+
+def event_to_record(ev):
+    """AcsEvent -> {pid, name, stamp, state} (ismsiz yoki vaqtsiz hodisa — None)."""
+    name = (ev.get("name") or "").strip()
+    pid = str(ev.get("employeeNoString") or ev.get("employeeNo") or "").strip()
+    t = ev.get("time", "")  # 2026-09-28T08:12:01+05:00
+    if not name or "T" not in t:
+        return None
+    stamp = f"{t[:10]} {t[11:19]}"
+    state = STATUS_RU.get(str(ev.get("attendanceStatus", "")).strip().lower(), NONE_RU)
+    return {"pid": pid, "name": name, "stamp": stamp, "state": state,
+            "reader": ev.get("deviceName") or ev.get("doorNo") or "ISAPI"}
+
+
+def build_raw_html(records):
+    """Punchlar ro'yxati -> IVMS «Отчет об исходных записях» HTML jadvali (sayt shuni o'qiydi)."""
+    def tr(cells):
+        return "<tr>" + "".join(f"<td>{escape(str(c))}</td>" for c in cells) + "</tr>"
+
+    rows = [tr(["Отчет об исходных записях"]), tr(RAW_HEADER)]
+    for r in records:
+        rows.append(tr([r["pid"], r["name"], "Dimed", r["stamp"], r["state"],
+                        r["reader"], "-", "ISAPI", "-", "-", "-"]))
+    return ('<html xmlns:x="urn:schemas-microsoft-com:office:excel">\n'
+            '<head><meta charset="utf-8"></head><body>\n<table border="1">\n'
+            + "\n".join(rows) + "\n</table></body></html>")
+
+
+def get_report_isapi(cfg, month):
+    """Hikvision qurilmasidan ISAPI orqali davomat hodisalarini oladi va
+    IVMS «Отчет об исходных записях» formatida HTML hisobot yaratadi."""
+    start, end = month_range(month, isapi_settings(cfg)["tz"])
+    events = fetch_isapi_events(cfg, start, end)
+    if events is None:
         return None
 
-    html = build_ivms_html(month, people)
-    return f"ivms_{month}.xls", html.encode("utf-8")
+    seen = set()
+    records = []
+    for ev in events:
+        rec = event_to_record(ev)
+        if not rec:
+            continue
+        key = (rec["pid"], rec["name"], rec["stamp"], rec["state"])
+        if key in seen:  # sahifalash chegarasida takrorlangan hodisa
+            continue
+        seen.add(key)
+        records.append(rec)
+
+    if not records:
+        log.warning("ISAPI: %s oy uchun hodisa topilmadi", month)
+        return None
+    records.sort(key=lambda r: (r["pid"], r["stamp"]))
+    stateful = sum(1 for r in records if r["state"] != NONE_RU)
+    log.info("ISAPI: %d ta punch (shundan Приход/Уход belgilangan: %d)", len(records), stateful)
+    if stateful == 0:
+        log.warning("ISAPI: birorta ham Приход/Уход holati yo'q — qurilmada davomat holati (attendanceStatus) yoqilganmi? "
+                    "--test-isapi bilan tekshiring")
+    return f"ivms_{month}.xls", build_raw_html(records).encode("utf-8")
 
 
-RU_DAYS = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"]
-
-
-def build_ivms_html(month, people):
-    """people: {(pid,name,date): {first,last}} -> IVMS HTML jadval."""
-    header = ["№", "Идентификатор человека", "Имя", "Департамент", "Должность",
-              "Пол", "Дата", "День недели", "Расписание", "Первый вход", "Последний выход"]
-    rows = []
-    n = 0
-    for (pid, name, date), rec in sorted(people.items(), key=lambda x: (x[0][1], x[0][2])):
-        n += 1
-        wd = RU_DAYS[datetime.strptime(date, "%Y-%m-%d").weekday()]
-        cells = [n, pid, name, "Dimed", "", "", date, wd, "", rec["first"], rec["last"]]
-        rows.append("<tr>" + "".join(f"<td>{escape(str(c))}</td>" for c in cells) + "</tr>")
-
-    y, m = map(int, month.split("-"))
-    import calendar
-    last_day = calendar.monthrange(y, m)[1]
-    return f"""<html xmlns:x="urn:schemas-microsoft-com:office:excel">
-<head><meta charset="utf-8"></head><body>
-<table border="1">
-<tr><td>Dimed</td></tr>
-<tr><td>Отчет о записях первого/последнего доступа</td></tr>
-<tr><td>{month}-01 00:00:00 - {month}-{last_day:02d} 23:59:59</td></tr>
-<tr>{''.join(f'<td>{h}</td>' for h in header)}</tr>
-{chr(10).join(rows)}
-</table></body></html>"""
+def test_isapi(cfg):
+    """Ulanishni sinaydi: oxirgi 24 soatdagi hodisalarni va ularning maydonlarini ko'rsatadi."""
+    st = isapi_settings(cfg)
+    now = datetime.now()
+    fmt = "%Y-%m-%dT%H:%M:%S"
+    events = fetch_isapi_events(cfg, (now - timedelta(hours=24)).strftime(fmt) + st["tz"], now.strftime(fmt) + st["tz"], limit=200)
+    if events is None:
+        print("XATO: qurilmaga ulanib bo'lmadi (agent.log ni ko'ring)")
+        return False
+    print(f"Ulandi: {st['base']} — oxirgi 24 soatda {len(events)} ta hodisa")
+    if not events:
+        return True
+    print("Birinchi hodisa maydonlari:", ", ".join(sorted(events[0].keys())))
+    counts = {}
+    for ev in events:
+        k = str(ev.get("attendanceStatus", "(yo'q)"))
+        counts[k] = counts.get(k, 0) + 1
+    print("attendanceStatus bo'yicha:", counts)
+    for ev in events[:5]:
+        rec = event_to_record(ev)
+        print("  ", ev.get("time"), ev.get("name"), ev.get("attendanceStatus"), "->", rec["state"] if rec else "(o'tkazib yuboriladi)")
+    return True
 
 
 # ------------------------------------------------------------------- upload
@@ -359,6 +435,7 @@ def main():
     parser.add_argument("--now", action="store_true", help="Jadvalga qaramay darhol ishga tushirish")
     parser.add_argument("--loop", action="store_true", help="Doimiy ishlash (har N daqiqada tekshirish)")
     parser.add_argument("--status", action="store_true", help="Holatni ko'rsatish")
+    parser.add_argument("--test-isapi", action="store_true", help="ISAPI ulanishini sinash (oxirgi 24 soat hodisalari)")
     args = parser.parse_args()
 
     if args.status:
@@ -366,6 +443,9 @@ def main():
         return
 
     cfg = load_config()
+
+    if args.test_isapi:
+        sys.exit(0 if test_isapi(cfg) else 1)
 
     if args.loop:
         poll = int(cfg.get("poll_minutes", 30))
