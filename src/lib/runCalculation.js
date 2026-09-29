@@ -246,6 +246,11 @@ export async function processIvmsFile({ html, fileName, source = 'manual', expec
   if (parsed.records.length === 0) {
     throw new Error("Faylda hech qanday yozuv topilmadi. Format noto'g'ri bo'lishi mumkin.")
   }
+  // Agent fayli faqat «Нет» punchlardan iborat bo'lsa (Приход/Уход tugmalari ishlatilmagan oy) — hamma kun
+  // «kelmagan» bo'lardi va saytdagi to'g'ri hisobot ustidan yozilardi. Qo'lda yuklashga ruxsat (ogohlantirish bilan)
+  if (source === 'agent' && parsed.format === IVMS_FORMAT.RAW_RECORDS && !parsed.meta.statefulDates?.length) {
+    throw new Error(`${parsed.month} fayli faqat «Нет» punchlardan iborat (Приход/Уход yo'q) — o'tkazib yuborildi, oy ustidan yozilmadi.`)
+  }
   // Agent fayli: papka oyi va fayl ichidagi oy bir xil bo'lishi kerak (boshqa oy ustidan yozilmasin)
   if (expectedMonth && parsed.month !== expectedMonth) {
     throw new Error(`Fayl ${expectedMonth} papkasida, lekin ichidagi ma'lumot ${parsed.month} oyiga tegishli — o'tkazib yuborildi.`)

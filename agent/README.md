@@ -129,6 +129,7 @@ Eslatmalar:
 - Sayt yangi fayl oldingi hisobotdan yangiroq bo'lsa oyni qayta yozadi — qo'lda tuzatishlardan
   keyin `--now` bilan qayta yuklamang.
 - Joriy oyni ko'rish uchun `"target": "current"` qo'ying.
+- Oyda birorta ham Приход/Уход bo'lmasa (davomat tugmalari ishlatilmagan oy), agent uni **yuklamaydi**: yangi qoida bo'yicha hamma kun «kelmagan» bo'lardi. Majburlash uchun `config.json` ga `"allow_no_status": true` qo'shing. Sayt ham agent faylini shu sababdan rad etadi (qo'lda yuklash ruxsat).
 
 ## 🖥 Ishlatish
 

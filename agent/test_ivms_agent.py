@@ -97,6 +97,13 @@ class IsapiTests(unittest.TestCase):
         self.assertIn("2026-09-28 08:12:01", text)
         self.assertEqual(agent.file_month(data), "2026-09")
 
+    def test_month_without_attendance_status_is_not_uploaded(self):
+        events = [ev("Ali Test", "7", "2026-08-05T08:12:01+05:00"), ev("Ali Test", "7", "2026-08-05T17:30:00+05:00")]
+        fake.post = lambda *a, **k: FakeResponse({"AcsEvent": {"totalMatches": 2, "numOfMatches": 2, "InfoList": events}})
+        self.assertIsNone(agent.get_report_isapi(self.CFG, "2026-08"))
+        forced = dict(self.CFG, allow_no_status=True)
+        self.assertIsNotNone(agent.get_report_isapi(forced, "2026-08"))
+
     def test_no_events_returns_none(self):
         fake.post = lambda *a, **k: FakeResponse({"AcsEvent": {"totalMatches": 0, "numOfMatches": 0, "InfoList": []}})
         self.assertIsNone(agent.get_report_isapi(self.CFG, "2026-09"))

@@ -296,9 +296,12 @@ def get_report_isapi(cfg, month):
     records.sort(key=lambda r: (r["pid"], r["stamp"]))
     stateful = sum(1 for r in records if r["state"] != NONE_RU)
     log.info("ISAPI: %d ta punch (shundan Приход/Уход belgilangan: %d)", len(records), stateful)
-    if stateful == 0:
-        log.warning("ISAPI: birorta ham Приход/Уход holati yo'q — qurilmada davomat holati (attendanceStatus) yoqilganmi? "
-                    "--test-isapi bilan tekshiring")
+    if stateful == 0 and not cfg.get("allow_no_status", False):
+        # Faqat «Нет»: yangi qoida bo'yicha hamma kun «kelmagan» bo'lardi va saytdagi to'g'ri hisobot ustidan yozilardi
+        log.error("ISAPI: %s oyida birorta ham Приход/Уход yo'q (faqat «Нет») — yuklanmadi. "
+                  "Davomat tugmalari ishlatila boshlagan oyni tanlang (yoki majburlash uchun config.json da "
+                  "\"allow_no_status\": true)", month)
+        return None
     return f"ivms_{month}.xls", build_raw_html(records).encode("utf-8")
 
 

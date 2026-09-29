@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
-import { computeReport, saveReport, recalculateMonth, reportWarnings } from './runCalculation'
+import { computeReport, saveReport, recalculateMonth, reportWarnings, processIvmsFile } from './runCalculation'
 import { dayIssueSummary } from './salaryCalc'
 import { setMonthLocked } from './monthLock'
 import { parseIvmsHtml } from './ivmsParser'
@@ -312,5 +312,20 @@ describe('anonim fixture (haqiqiy fayldan 4 xodim) — oxirigacha hisoblash', ()
     expect(text).toMatch(/\d+ ta yopilmagan juftlik/)
     expect(text).toMatch(/\d+ ta xodim-kun faqat «Нет»/)
     expect(text).toContain('26.09–28.09')
+  })
+})
+
+describe('agent fayli: faqat «Нет» bo\'lsa oy ustidan yozilmaydi', () => {
+  const M = '2097-05'
+  const onlyNone = rawHtml([['980', 'Faqat Net', `${M}-05 08:00:00`, 'none'], ['980', 'Faqat Net', `${M}-05 17:00:00`, 'none']])
+  const withIn = rawHtml([['980', 'Faqat Net', `${M}-05 08:00:00`, 'in'], ['980', 'Faqat Net', `${M}-05 17:00:00`, 'out']])
+
+  it('agent manbasi: rad etiladi, saqlanmaydi', async () => {
+    await expect(processIvmsFile({ html: onlyNone, fileName: 'a.xls', source: 'agent' })).rejects.toThrow('faqat «Нет»')
+    expect(await db.getReportByMonth(M)).toBeNull()
+  })
+  it("qo'lda yuklash ruxsat; Приход/Уход bor agent fayli o'tadi", async () => {
+    await expect(processIvmsFile({ html: onlyNone, fileName: 'm.xls', source: 'manual' })).resolves.toBeTruthy()
+    await expect(processIvmsFile({ html: withIn, fileName: 'a.xls', source: 'agent' })).resolves.toBeTruthy()
   })
 })
